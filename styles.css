@@ -9,7 +9,6 @@
   --muted: #8e9aa6;
   --accent: #d96b42;
   --accent-2: #c84c4c;
-  --ok: #83b793;
   --warn: #d2a24a;
   --danger: #d55656;
   --shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
@@ -36,15 +35,6 @@ body {
   pointer-events: none;
 }
 
-.app-shell {
-  position: relative;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 16px;
-  display: grid;
-  gap: 12px;
-}
-
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -52,6 +42,46 @@ body {
   box-shadow: var(--shadow);
   backdrop-filter: blur(4px);
   padding: 14px;
+}
+
+.main-screen {
+  position: relative;
+  min-height: 100vh;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: minmax(320px, 520px);
+  justify-content: center;
+  align-content: center;
+  gap: 12px;
+}
+
+.main-card {
+  display: grid;
+  gap: 14px;
+}
+
+.main-menu {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.app-shell {
+  position: relative;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
 }
 
 h1,
@@ -64,28 +94,28 @@ p {
 h1 {
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
   font-size: 1.8rem;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
 }
 
 h2 {
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
   font-size: 1rem;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   margin-bottom: 10px;
   color: #f4f7fa;
 }
 
 h3 {
   font-size: 0.82rem;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
   color: var(--muted);
   margin-bottom: 6px;
 }
 
 .kicker {
   color: var(--accent);
-  letter-spacing: 0.18em;
-  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
   margin-bottom: 6px;
 }
 
@@ -205,7 +235,7 @@ select {
 }
 
 .hidden {
-  display: none;
+  display: none !important;
 }
 
 .broadcast {
@@ -297,5 +327,9 @@ select {
 
   .host-controls {
     grid-template-columns: 1fr;
+  }
+
+  .main-screen {
+    padding: 14px;
   }
 }

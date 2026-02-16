@@ -4,19 +4,48 @@ const CONFIG = {
   seasonDays: 20,
   hostActionsPerDay: 1,
   day1To2DeathDisabled: true,
+  enableHostInfluence: false,
+  enableFreeShockToken: true,
   actionTypes: ["TALK", "FORM_ALLIANCE", "BREAK_ALLIANCE", "FLIRT", "GOSSIP", "BETRAY", "INTIMIDATE", "PROTECT"],
 };
 
 const HOST_ACTIONS = {
-  BOOST_POINTS: { needB: false },
-  REDUCE_STRESS: { needB: false },
-  SPREAD_RUMOR: { needB: true },
-  INCREASE_ATTRACTION: { needB: true },
-  TRIGGER_CONFLICT: { needB: true },
-  ALTER_GAME_DIFFICULTY: { needB: false },
+  BOOST_POINTS: { needB: false, needsParam: false },
+  REDUCE_STRESS: { needB: false, needsParam: false },
+  SPREAD_RUMOR: { needB: true, needsParam: false },
+  INCREASE_ATTRACTION: { needB: true, needsParam: false },
+  TRIGGER_CONFLICT: { needB: true, needsParam: true },
+  RIG_GAME_DIFFICULTY: { needB: false, needsParam: true },
 };
 
 const SAVE_KEY = "island_broadcast_dark_survival_v1";
+
+const HOST_BASE_FOOTPRINT = {
+  BOOST_POINTS: 15,
+  REDUCE_STRESS: 10,
+  SPREAD_RUMOR: 12,
+  INCREASE_ATTRACTION: 18,
+  TRIGGER_CONFLICT: 20,
+  RIG_GAME_DIFFICULTY: 25,
+};
+
+const HOST_NARRATIVE_KEY = {
+  BOOST_POINTS: "host.note.favor",
+  REDUCE_STRESS: "host.note.relief",
+  SPREAD_RUMOR: "host.note.rumor",
+  INCREASE_ATTRACTION: "host.note.twist",
+  TRIGGER_CONFLICT: "host.note.conflict",
+  RIG_GAME_DIFFICULTY: "host.note.rig",
+};
+
+const HOST_ACTION_LABEL = {
+  BOOST_POINTS: "점수 증폭",
+  REDUCE_STRESS: "스트레스 완화",
+  SPREAD_RUMOR: "루머 확산",
+  INCREASE_ATTRACTION: "호감 조작",
+  TRIGGER_CONFLICT: "충돌 유도",
+  RIG_GAME_DIFFICULTY: "난이도 조작",
+};
 
 const ARCHETYPES = [
   {
@@ -273,6 +302,9 @@ function createParticipantFromArchetype(archetype) {
     jealousy: randInt(10, 40),
     loneliness: 30,
     stability: clamp(100 - archetype.stress, 0, 100),
+    suspicion: randInt(0, 10),
+    paranoia: 0,
+    publicImage: clamp(50 + archetype.charisma * 0.2 + randInt(-10, 10), 0, 100),
     trustBaseline: archetype.trustBaseline,
     traits: { ...archetype.traits },
     trust: {},
@@ -284,6 +316,8 @@ function createParticipantFromArchetype(archetype) {
     latestRank: null,
     lowRankStreak: 0,
     violentEventBonus: 0,
+    nextGameModifier: 0,
+    riggedLastDay: null,
   };
 }
 
@@ -304,6 +338,9 @@ function initParticipants() {
   }
 
   applyInitialRelationSeeds(participants);
+  for (const p of participants) {
+    p.paranoia = clamp(p.fear * 0.5 + p.suspicion * 0.5, 0, 100);
+  }
   return participants;
 }
 
@@ -352,8 +389,15 @@ function initState() {
   const state = {
     day: 1,
     participants,
+    hostActionsUsedToday: 0,
+    hostSuspicionGlobal: 0,
+    hostAgendaTargetId: null,
+    broadcastBias: 0,
+    hostInfluence: 50,
+    freeShockTokenToday: false,
     alliances: {},
     relationships: {},
+    rumors: [],
     rankings: [],
     top3: [],
     cageVictimId: null,
@@ -367,9 +411,10 @@ function initState() {
     newAlliancesToday: [],
     confrontationEventsToday: [],
     hostEventToday: false,
+    detectionEventToday: false,
+    hostLogs: [],
+    hostProducerNote: "",
     pendingHostAction: null,
-    hostActionUsedDay: null,
-    suspicion: 0,
     gameOver: false,
     winnerId: null,
   };
@@ -394,6 +439,16 @@ function loadState() {
 }
 
 function hydrateState(state) {
+  if (typeof state.hostActionsUsedToday !== "number") state.hostActionsUsedToday = 0;
+  if (typeof state.hostSuspicionGlobal !== "number") state.hostSuspicionGlobal = state.suspicion ?? 0;
+  if (!("hostAgendaTargetId" in state)) state.hostAgendaTargetId = null;
+  if (typeof state.broadcastBias !== "number") state.broadcastBias = 0;
+  if (typeof state.hostInfluence !== "number") state.hostInfluence = 50;
+  if (typeof state.freeShockTokenToday !== "boolean") state.freeShockTokenToday = false;
+  if (!Array.isArray(state.hostLogs)) state.hostLogs = [];
+  if (typeof state.hostProducerNote !== "string") state.hostProducerNote = "";
+  if (!Array.isArray(state.rumors)) state.rumors = [];
+  if (!("detectionEventToday" in state)) state.detectionEventToday = false;
   if (!state.relationships) state.relationships = {};
   if (!Array.isArray(state.dailyRelationshipEvents)) state.dailyRelationshipEvents = [];
   if (!Array.isArray(state.newAlliancesToday)) state.newAlliancesToday = [];
@@ -408,6 +463,11 @@ function hydrateState(state) {
     if (typeof p.stability !== "number") p.stability = clamp(100 - p.stress, 0, 100);
     if (typeof p.lowRankStreak !== "number") p.lowRankStreak = 0;
     if (typeof p.violentEventBonus !== "number") p.violentEventBonus = 0;
+    if (typeof p.nextGameModifier !== "number") p.nextGameModifier = 0;
+    if (!("riggedLastDay" in p)) p.riggedLastDay = null;
+    if (typeof p.suspicion !== "number") p.suspicion = randInt(0, 10);
+    if (typeof p.publicImage !== "number") p.publicImage = clamp(50 + p.charisma * 0.2 + randInt(-10, 10), 0, 100);
+    p.paranoia = clamp(p.fear * 0.6 + p.suspicion * 0.4, 0, 100);
     if (!p.role) p.role = "UNDEFINED";
     if (!p.traits) p.traits = {};
   }
@@ -416,6 +476,38 @@ function hydrateState(state) {
 
 function livingTargets(state, actorId) {
   return aliveParticipants(state).filter((p) => p.id !== actorId);
+}
+
+function isRival(a, b) {
+  return (a.trust[b.id] ?? 0) < -40 || (b.trust[a.id] ?? 0) < -40;
+}
+
+function getDirectIdsFromAction(action) {
+  const ids = [];
+  if (action.targetA) ids.push(action.targetA);
+  if (action.targetB) ids.push(action.targetB);
+  return [...new Set(ids)];
+}
+
+function witnessFactorForParticipant(state, participant, directIds) {
+  if (directIds.includes(participant.id)) return 1;
+  const direct = directIds.map((id) => participantById(state, id)).filter(Boolean);
+  for (const d of direct) {
+    const allianceLinked = participant.allianceId && d.allianceId && participant.allianceId === d.allianceId;
+    const relationLinked = !!state.relationships[pairKey(participant.id, d.id)];
+    if (allianceLinked || relationLinked || isRival(participant, d)) return 0.6;
+  }
+  return 0.2;
+}
+
+function helpedAction(type) {
+  return type === "BOOST_POINTS" || type === "REDUCE_STRESS";
+}
+
+function timesHelpedLast5Days(state, targetId) {
+  return state.hostLogs.filter(
+    (log) => log.day >= state.day - 4 && helpedAction(log.type) && log.params?.targetA === targetId
+  ).length;
 }
 
 function allianceBonus(state, p) {
@@ -451,7 +543,7 @@ function applySocialAction(state, actor, target, actionType) {
     growTrust(state, actor, target.id, trustGain);
     actor.stress = clamp(actor.stress - 3, 0, 100);
     target.stress = clamp(target.stress - 1, 0, 100);
-    log.push(`${actor.name} -> TALK -> ${target.name}`);
+    log.push(`${actor.name}가 ${target.name}와 대화`);
   }
 
   if (actionType === "FORM_ALLIANCE") {
@@ -466,21 +558,21 @@ function applySocialAction(state, actor, target, actionType) {
     }
     growTrust(state, actor, target.id, -12);
     actor.stress = clamp(actor.stress + 4, 0, 100);
-    log.push(`${actor.name} -> BREAK_ALLIANCE -> ${target.name}`);
+    log.push(`${actor.name}가 ${target.name}와 동맹 파기`);
   }
 
   if (actionType === "FLIRT") {
     growAttraction(actor, target.id, 8);
     growTrust(state, actor, target.id, trustGain);
     target.fear = clamp(target.fear - 2, 0, 100);
-    log.push(`${actor.name} -> FLIRT -> ${target.name}`);
+    log.push(`${actor.name}가 ${target.name}에게 호감 표현`);
   }
 
   if (actionType === "GOSSIP") {
     growTrust(state, actor, target.id, -6);
     target.stress = clamp(target.stress + 6, 0, 100);
     target.fear = clamp(target.fear + 4, 0, 100);
-    log.push(`${actor.name} -> GOSSIP about ${target.name}`);
+    log.push(`${actor.name}가 ${target.name} 관련 루머 유포`);
   }
 
   if (actionType === "BETRAY") {
@@ -491,21 +583,21 @@ function applySocialAction(state, actor, target, actionType) {
     if (actor.allianceId && actor.allianceId === target.allianceId) {
       dissolveAlliance(state, actor.allianceId, `${actor.name}의 BETRAY로 동맹 붕괴`);
     }
-    log.push(`${actor.name} -> BETRAY -> ${target.name}`);
+    log.push(`${actor.name}가 ${target.name}를 배신`);
   }
 
   if (actionType === "INTIMIDATE") {
     growTrust(state, actor, target.id, -10);
     target.fear = clamp(target.fear + 9, 0, 100);
     target.stress = clamp(target.stress + 5, 0, 100);
-    log.push(`${actor.name} -> INTIMIDATE -> ${target.name}`);
+    log.push(`${actor.name}가 ${target.name}를 위협`);
   }
 
   if (actionType === "PROTECT") {
     growTrust(state, actor, target.id, trustGain);
     target.stress = clamp(target.stress - 8, 0, 100);
     target.fear = clamp(target.fear - 6, 0, 100);
-    log.push(`${actor.name} -> PROTECT -> ${target.name}`);
+    log.push(`${actor.name}가 ${target.name}를 보호`);
   }
 
   return log;
@@ -566,7 +658,7 @@ function autoFormAlliances(state) {
         a.allianceId = id;
         b.allianceId = id;
         state.newAlliancesToday.push([a.id, b.id]);
-        state.dailyLog.push(`[ALLIANCE] ${a.name} + ${b.name}`);
+        state.dailyLog.push(`[동맹] ${a.name} + ${b.name}`);
       }
     }
   }
@@ -580,7 +672,7 @@ function dissolveAlliance(state, allianceId, reason) {
     if (p) p.allianceId = null;
   }
   delete state.alliances[allianceId];
-  if (reason) state.dailyLog.push(`[ALLIANCE BREAK] ${reason}`);
+  if (reason) state.dailyLog.push(`[동맹 붕괴] ${reason}`);
 }
 
 function checkBetrayalTrigger(state, actor, target) {
@@ -595,7 +687,7 @@ function applyBetrayalEffect(state, actor, target) {
   target.fear = clamp(target.fear + 10, 0, 100);
   target.jealousy = clamp(target.jealousy + 15, 0, 100);
   dissolveAlliance(state, actor.allianceId, `${actor.name}의 배신`);
-  state.dailyLog.push(`[BETRAYAL TRIGGER] ${actor.name} -> ${target.name}`);
+  state.dailyLog.push(`[배신 발동] ${actor.name} -> ${target.name}`);
 }
 
 function socialPhase(state) {
@@ -608,7 +700,7 @@ function socialPhase(state) {
       const target = chooseTarget(actor, targets);
       const actionType = chooseActionType(actor, target);
       const logs = applySocialAction(state, actor, target, actionType);
-      logs.forEach((line) => state.dailyLog.push(`[SOCIAL] ${line}`));
+      logs.forEach((line) => state.dailyLog.push(`[사회] ${line}`));
 
       if (checkBetrayalTrigger(state, actor, target)) {
         applyBetrayalEffect(state, actor, target);
@@ -621,13 +713,14 @@ function socialPhase(state) {
 
 function gamePhase(state) {
   const scored = aliveParticipants(state).map((p) => {
+    const previousRank = p.latestRank;
     const variance = p.traits?.performanceVariance ?? 1;
     const randomBase = randFloat(0, 100);
     const varianceJitter = randFloat(-20, 20) * (variance - 1);
-    const base = randomBase + varianceJitter + p.ambition * 0.3 - p.stress * 0.2 - p.difficultyOffset;
+    const base = randomBase + varianceJitter + p.ambition * 0.3 - p.stress * 0.2 - p.difficultyOffset + p.nextGameModifier;
     const bonus = base * allianceBonus(state, p);
     const performance = base + bonus;
-    return { id: p.id, performance };
+    return { id: p.id, performance, previousRank };
   });
 
   scored.sort((a, b) => b.performance - a.performance);
@@ -636,9 +729,14 @@ function gamePhase(state) {
   scored.forEach((entry, idx) => {
     const p = participantById(state, entry.id);
     p.latestRank = idx + 1;
+    if (p.riggedLastDay && entry.previousRank && Math.abs(entry.previousRank - p.latestRank) >= 3) {
+      p.suspicion = clamp(p.suspicion + 15, 0, 100);
+    }
+    p.nextGameModifier = 0;
+    p.riggedLastDay = null;
   });
 
-  state.dailyLog.push(`[GAME] competition resolved (${scored.length} alive)`);
+  state.dailyLog.push(`[게임] 일일 경쟁 완료 (${scored.length}명 생존)`);
 }
 
 function rankingUpdate(state) {
@@ -670,7 +768,7 @@ function rankingUpdate(state) {
         growTrust(state, first, other.id, 2);
       }
     }
-    state.dailyLog.push(`[RANK] 1st ${first.name} (+5 points)`);
+    state.dailyLog.push(`[순위] 1위 ${first.name} (+5점)`);
   }
 
   const bottomEntry = ranked[ranked.length - 1];
@@ -700,7 +798,7 @@ function rankingUpdate(state) {
       cage.fear = clamp(cage.fear + 10, 0, 100);
     }
 
-    state.dailyLog.push(`[CAGE] ${cage.name} confined`);
+    state.dailyLog.push(`[케이지] ${cage.name} 수감`);
   }
 
   state.top3 = ranked.slice(0, 3).map((entry) => entry.id);
@@ -722,74 +820,264 @@ function tradePhase(state) {
         donor.points -= 1;
         receiver.points += 1;
         trades += 1;
-        state.dailyLog.push(`[TRADE] ${donor.name} -> ${receiver.name} (1 point)`);
+        state.dailyLog.push(`[거래] ${donor.name} -> ${receiver.name} (1점)`);
       }
     }
   }
 
-  if (!trades) state.dailyLog.push("[TRADE] no successful trade");
+  if (!trades) state.dailyLog.push("[거래] 성사 없음");
+}
+
+function findLatestHostLog(state, predicate) {
+  return [...state.hostLogs].reverse().find(predicate);
+}
+
+function canUseHostAction(state, action) {
+  const freeShockValid =
+    state.freeShockTokenToday && (action.type === "SPREAD_RUMOR" || (action.type === "TRIGGER_CONFLICT" && action.param === 1));
+  if (!freeShockValid && state.hostActionsUsedToday >= CONFIG.hostActionsPerDay) {
+    return { ok: false, reason: "오늘 주최자 행동 횟수를 모두 사용했습니다." };
+  }
+
+  if (action.type === "BOOST_POINTS") {
+    const last = findLatestHostLog(state, (log) => log.type === "BOOST_POINTS" && log.params?.targetA === action.targetA);
+    if (last && last.day === state.day - 1) {
+      return { ok: false, reason: "같은 대상 연속 점수 증폭은 금지됩니다." };
+    }
+  }
+
+  if (action.type === "RIG_GAME_DIFFICULTY") {
+    const last = findLatestHostLog(state, (log) => log.type === "RIG_GAME_DIFFICULTY" && log.params?.targetA === action.targetA);
+    if (last && last.day === state.day - 1) {
+      return { ok: false, reason: "같은 대상 연속 난이도 조작은 금지됩니다." };
+    }
+  }
+
+  if (action.type === "TRIGGER_CONFLICT") {
+    const pair = pairKey(action.targetA, action.targetB);
+    const last = findLatestHostLog(
+      state,
+      (log) =>
+        log.type === "TRIGGER_CONFLICT" &&
+        log.params?.targetA &&
+        log.params?.targetB &&
+        pairKey(log.params.targetA, log.params.targetB) === pair
+    );
+    if (last && state.day - last.day <= 2) {
+      return { ok: false, reason: "같은 페어 충돌 유도는 2일 쿨다운입니다." };
+    }
+  }
+
+  return { ok: true, reason: "" };
+}
+
+function applyFootprintAndSuspicion(state, action, footprint) {
+  const beforeGlobal = state.hostSuspicionGlobal;
+  state.hostSuspicionGlobal = clamp(state.hostSuspicionGlobal + footprint * 0.15, 0, 100);
+  const directIds = getDirectIdsFromAction(action);
+
+  for (const participant of aliveParticipants(state)) {
+    const witness = witnessFactorForParticipant(state, participant, directIds);
+    const delta = footprint * witness * (0.2 + participant.paranoia / 200);
+    participant.suspicion = clamp(participant.suspicion + delta, 0, 100);
+    participant.paranoia = clamp(participant.fear * 0.6 + participant.suspicion * 0.4, 0, 100);
+  }
+
+  return state.hostSuspicionGlobal - beforeGlobal;
+}
+
+function applyHostActionDelta(state, action) {
+  const a = participantById(state, action.targetA);
+  const b = action.targetB ? participantById(state, action.targetB) : null;
+  if (!a || !a.alive) return "대상 A가 유효하지 않습니다.";
+  if (action.targetB && (!b || !b.alive || a.id === b.id)) return "대상 B가 유효하지 않습니다.";
+
+  if (action.type === "BOOST_POINTS") {
+    a.points += 2;
+    a.publicImage = clamp(a.publicImage + 3, 0, 100);
+    const rivals = aliveParticipants(state).filter((p) => p.id !== a.id && isRival(p, a));
+    for (const rival of rivals) {
+      rival.jealousy = clamp(rival.jealousy + 8, 0, 100);
+      rival.suspicion = clamp(rival.suspicion + 5, 0, 100);
+    }
+    a.suspicion = clamp(a.suspicion + 5, 0, 100);
+    return `${a.name} 점수 +2`;
+  }
+
+  if (action.type === "REDUCE_STRESS") {
+    a.stress = clamp(a.stress - 20, 0, 100);
+    a.fear = clamp(a.fear - 5, 0, 100);
+    a.loneliness = clamp(a.loneliness - 5, 0, 100);
+    return `${a.name} 스트레스 완화`;
+  }
+
+  if (action.type === "SPREAD_RUMOR" && b) {
+    const trustedByOthersAvg =
+      aliveParticipants(state).filter((p) => p.id !== a.id).reduce((sum, p) => sum + (a.trust[p.id] ?? 0), 0) /
+      Math.max(1, aliveParticipants(state).length - 1);
+    const rumor = {
+      id: `rumor_${state.day}_${a.id}_${b.id}_${Date.now()}`,
+      dayCreated: state.day,
+      topicKey: `topic_${state.day}_${a.id}`,
+      sourceId: a.id,
+      targetId: b.id,
+      severity: clamp(0.35 + randFloat(0, 0.15), 0, 1),
+      spread: clamp(0.25 + randFloat(0, 0.15) + trustedByOthersAvg / 200, 0, 1),
+      truthiness: clamp(randFloat(0.2, 0.8), 0, 1),
+    };
+    state.rumors.push(rumor);
+    b.stress = clamp(b.stress + 8, 0, 100);
+    b.publicImage = clamp(b.publicImage - 10, 0, 100);
+    for (const p of aliveParticipants(state)) {
+      if (p.id === b.id) continue;
+      if ((p.attraction[b.id] ?? 0) > 60) p.jealousy = clamp(p.jealousy + 10, 0, 100);
+    }
+    return `${a.name} 출처 루머 확산 -> ${b.name}`;
+  }
+
+  if (action.type === "INCREASE_ATTRACTION" && b) {
+    growAttraction(a, b.id, 15);
+    growAttraction(b, a.id, 5);
+    for (const p of aliveParticipants(state)) {
+      if (p.id === a.id || p.id === b.id) continue;
+      if ((p.attraction[b.id] ?? 0) > 60) p.jealousy = clamp(p.jealousy + 12, 0, 100);
+    }
+    return `${a.name}<->${b.name} 호감도 조작`;
+  }
+
+  if (action.type === "TRIGGER_CONFLICT" && b) {
+    const intensity = clamp(action.param ?? 2, 1, 3);
+    if (intensity === 1) {
+      growTrust(state, a, b.id, -10);
+      a.stress = clamp(a.stress + 5, 0, 100);
+      b.stress = clamp(b.stress + 5, 0, 100);
+    } else if (intensity === 2) {
+      growTrust(state, a, b.id, -25);
+      growTrust(state, b, a.id, -15);
+      a.stress = clamp(a.stress + 10, 0, 100);
+      b.stress = clamp(b.stress + 10, 0, 100);
+    } else {
+      growTrust(state, a, b.id, -40);
+      growTrust(state, b, a.id, -30);
+      a.stress = clamp(a.stress + 15, 0, 100);
+      b.stress = clamp(b.stress + 15, 0, 100);
+      a.fear = clamp(a.fear + 5, 0, 100);
+      b.fear = clamp(b.fear + 5, 0, 100);
+    }
+    a.publicImage = clamp(a.publicImage - 5, 0, 100);
+    b.publicImage = clamp(b.publicImage - 5, 0, 100);
+    return `${a.name} vs ${b.name} 충돌 유도 (${intensity})`;
+  }
+
+  if (action.type === "RIG_GAME_DIFFICULTY") {
+    const param = action.param ?? 2;
+    const delta = param === 1 ? -15 : param === 2 ? 15 : 20;
+    a.nextGameModifier = delta;
+    a.riggedLastDay = state.day;
+    return `${a.name} 게임 난이도 조작 (${delta >= 0 ? "+" : ""}${delta})`;
+  }
+
+  return "행동 적용 실패";
 }
 
 function applyHostIntervention(state) {
   const action = state.pendingHostAction;
   if (!action) {
-    state.dailyLog.push("[HOST] intervention skipped");
+    state.dailyLog.push("[주최자] 개입 없음");
     return;
   }
 
-  if (state.hostActionUsedDay === state.day) {
-    state.dailyLog.push("[HOST] already used today");
-    return;
-  }
-
-  const a = participantById(state, action.targetA);
-  const b = action.targetB ? participantById(state, action.targetB) : null;
-  if (!a || !a.alive) {
-    state.dailyLog.push("[HOST] invalid target");
+  const validation = canUseHostAction(state, action);
+  if (!validation.ok) {
+    state.dailyLog.push(`[주최자] ${validation.reason}`);
     state.pendingHostAction = null;
     return;
   }
 
-  if (action.type === "BOOST_POINTS") {
-    a.points += 2;
+  if (CONFIG.enableHostInfluence) {
+    const cost = 10 + Math.floor((HOST_BASE_FOOTPRINT[action.type] ?? 12) * 0.6);
+    if (state.hostInfluence < cost) {
+      state.dailyLog.push("[주최자] 영향력 부족");
+      state.pendingHostAction = null;
+      return;
+    }
+    state.hostInfluence = clamp(state.hostInfluence - cost, 0, 100);
   }
 
-  if (action.type === "REDUCE_STRESS") {
-    a.stress = clamp(a.stress - 20, 0, 100);
+  let footprint = (HOST_BASE_FOOTPRINT[action.type] ?? 12) + randInt(0, 5);
+
+  if (helpedAction(action.type)) {
+    const repeat = 1 + timesHelpedLast5Days(state, action.targetA) * 0.25;
+    footprint *= repeat;
   }
 
-  if (action.type === "SPREAD_RUMOR" && b && b.alive && a.id !== b.id) {
-    growTrust(state, b, a.id, -15);
-    a.fear = clamp(a.fear + 12, 0, 100);
-    a.stress = clamp(a.stress + 8, 0, 100);
+  const agenda = state.hostAgendaTargetId;
+  if (agenda) {
+    const helpfulToAgenda =
+      action.targetA === agenda && (action.type === "BOOST_POINTS" || action.type === "REDUCE_STRESS" || action.type === "INCREASE_ATTRACTION");
+    const harmfulToAgenda =
+      (action.type === "SPREAD_RUMOR" && action.targetB === agenda) ||
+      (action.type === "TRIGGER_CONFLICT" && (action.targetA === agenda || action.targetB === agenda)) ||
+      (action.type === "RIG_GAME_DIFFICULTY" && action.targetA === agenda && (action.param ?? 2) === 1);
+    if (helpfulToAgenda) footprint *= 0.8;
+    if (harmfulToAgenda) footprint *= 1.2;
   }
 
-  if (action.type === "INCREASE_ATTRACTION" && b && b.alive && a.id !== b.id) {
-    growAttraction(a, b.id, 15);
-    growAttraction(b, a.id, 15);
+  let consumeDailySlot = true;
+  if (state.freeShockTokenToday) {
+    const validShock = action.type === "SPREAD_RUMOR" || (action.type === "TRIGGER_CONFLICT" && action.param === 1);
+    if (validShock) {
+      footprint *= 0.7;
+      state.freeShockTokenToday = false;
+      consumeDailySlot = false;
+    }
   }
 
-  if (action.type === "TRIGGER_CONFLICT" && b && b.alive && a.id !== b.id) {
-    growTrust(state, a, b.id, -22);
-    growTrust(state, b, a.id, -18);
-    a.stress = clamp(a.stress + 10, 0, 100);
-    b.stress = clamp(b.stress + 10, 0, 100);
-    a.fear = clamp(a.fear + 5, 0, 100);
-    b.fear = clamp(b.fear + 5, 0, 100);
-  }
-
-  if (action.type === "ALTER_GAME_DIFFICULTY") {
-    a.difficultyOffset = clamp(a.difficultyOffset + 15, 0, 50);
-  }
+  const note = applyHostActionDelta(state, action);
+  const suspicionDeltaGlobal = applyFootprintAndSuspicion(state, action, footprint);
 
   for (const p of aliveParticipants(state)) {
-    p.fear = clamp(p.fear + 5, 0, 100);
+    p.fear = clamp(p.fear + 3, 0, 100);
+    p.paranoia = clamp(p.fear * 0.6 + p.suspicion * 0.4, 0, 100);
   }
+
+  state.hostLogs.push({
+    day: state.day,
+    type: action.type,
+    params: { ...action },
+    footprint: Number(footprint.toFixed(2)),
+    suspicionDeltaGlobal: Number(suspicionDeltaGlobal.toFixed(2)),
+    narrativeKey: HOST_NARRATIVE_KEY[action.type] ?? "host.note.twist",
+  });
+
+  if (consumeDailySlot) state.hostActionsUsedToday += 1;
   state.hostEventToday = true;
-  state.suspicion += 5;
-  state.hostActionUsedDay = state.day;
-  state.dailyLog.push(`[HOST] ${action.type} executed (suspicion +5)`);
+  state.hostProducerNote = `프로듀서 노트: ${note}`;
+  state.dailyLog.push(`[주최자] ${note} / 흔적 ${footprint.toFixed(1)}`);
   state.pendingHostAction = null;
+}
+
+function tryDetectionEvent(state) {
+  state.detectionEventToday = false;
+  const maxSuspicion = aliveParticipants(state).reduce((max, p) => Math.max(max, p.suspicion), 0);
+  if (state.hostSuspicionGlobal <= 70 && maxSuspicion <= 80) return;
+
+  const p = clamp((state.hostSuspicionGlobal - 60) * 0.01 + maxSuspicion * 0.005, 0, 0.6);
+  if (Math.random() > p) return;
+
+  state.detectionEventToday = true;
+  state.dailyLog.push("[탐지] 제작진 개입 의혹이 공개되었다.");
+
+  const alive = aliveParticipants(state);
+  for (const a of alive) {
+    a.fear = clamp(a.fear + 10, 0, 100);
+    a.paranoia = clamp(a.fear * 0.6 + a.suspicion * 0.4, 0, 100);
+    if (a.role === "UNSTABLE") a.stress = clamp(a.stress + 10, 0, 100);
+    for (const b of alive) {
+      if (a.id === b.id) continue;
+      a.trust[b.id] = clamp((a.trust[b.id] ?? 0) - 5, -100, 100);
+    }
+  }
 }
 
 function isInRelationship(state, participantId) {
@@ -836,7 +1124,7 @@ function processRelationships(state) {
           if (other.id === a.id || other.id === b.id) continue;
           other.jealousy = clamp(other.jealousy + 10, 0, 100);
         }
-        state.dailyRelationshipEvents.push(`[REL FORM] ${a.name} & ${b.name}`);
+        state.dailyRelationshipEvents.push(`[연애 형성] ${a.name} & ${b.name}`);
       }
     }
   }
@@ -859,7 +1147,7 @@ function processRelationships(state) {
     a.jealousy = clamp(a.jealousy + 20, 0, 100);
     b.jealousy = clamp(b.jealousy + 20, 0, 100);
     delete state.relationships[rel.key];
-    state.dailyRelationshipEvents.push(`[REL BREAK] ${a.name} x ${b.name}`);
+    state.dailyRelationshipEvents.push(`[연애 파기] ${a.name} x ${b.name}`);
   }
 }
 
@@ -927,7 +1215,7 @@ function applyLoveTriangleEffects(state) {
         c.jealousy = clamp(c.jealousy + 20, 0, 100);
         c.violentEventBonus = clamp(c.violentEventBonus + 0.15, 0, 1);
         state.triangleDetected = [a.id, b.id, c.id];
-        state.dailyRelationshipEvents.push(`[TRIANGLE] ${a.name}-${b.name}<-${c.name}`);
+        state.dailyRelationshipEvents.push(`[삼각관계] ${a.name}-${b.name}<-${c.name}`);
         return;
       }
     }
@@ -943,6 +1231,7 @@ function applyStressFearModel(state) {
     p.stress = clamp(p.stress - 5, 0, 100);
     p.fear = clamp(p.fear - 3, 0, 100);
     p.stability = clamp(100 - p.stress, 0, 100);
+    p.paranoia = clamp(p.fear * 0.6 + p.suspicion * 0.4, 0, 100);
   }
 }
 
@@ -978,7 +1267,7 @@ function triggerEmotionalCascade(state) {
       actor.trust[worst.target.id] = clamp((actor.trust[worst.target.id] ?? 0) - 20, -100, 100);
       worst.target.trust[actor.id] = clamp((worst.target.trust[actor.id] ?? 0) - 20, -100, 100);
       state.confrontationEventsToday.push(`public_fight:${actor.id}:${worst.target.id}`);
-      state.dailyLog.push(`[CONFRONTATION] PUBLIC FIGHT ${actor.name} vs ${worst.target.name}`);
+      state.dailyLog.push(`[대치] 공개 충돌 ${actor.name} vs ${worst.target.name}`);
     } else if (roll < 0.75) {
       actor.violentEventBonus = clamp(actor.violentEventBonus + 0.2, 0, 1);
       for (const other of people) {
@@ -986,12 +1275,12 @@ function triggerEmotionalCascade(state) {
         other.fear = clamp(other.fear + 8, 0, 100);
       }
       state.confrontationEventsToday.push(`violent_incident:${actor.id}:${worst.target.id}`);
-      state.dailyLog.push(`[CONFRONTATION] VIOLENT INCIDENT RISK ${actor.name}`);
+      state.dailyLog.push(`[대치] 폭력 사건 위험 ${actor.name}`);
     } else {
       actor.loneliness = clamp(actor.loneliness + 12, 0, 100);
       actor.stress = clamp(actor.stress - 6, 0, 100);
       state.confrontationEventsToday.push(`self_isolation:${actor.id}`);
-      state.dailyLog.push(`[CONFRONTATION] SELF-ISOLATION ${actor.name}`);
+      state.dailyLog.push(`[대치] 자기 고립 ${actor.name}`);
     }
   }
 }
@@ -1033,7 +1322,7 @@ function nightPhase(state) {
   applyCaretakerSupport(state);
   triggerEmotionalCascade(state);
   computeDramaScore(state);
-  state.dailyLog.push("[NIGHT] emotion/relation engine resolved");
+  state.dailyLog.push("[야간] 감정·관계 엔진 반영");
 }
 
 function cleanMatricesAfterDeath(state, deadId) {
@@ -1053,7 +1342,7 @@ function killParticipant(state, p, reason) {
   cleanMatricesAfterDeath(state, p.id);
   state.latestDeath = { id: p.id, name: p.name, reason, day: state.day };
   state.deaths.push(state.latestDeath);
-  state.dailyLog.push(`[DEATH] ${p.name} | ${reason}`);
+  state.dailyLog.push(`[사망] ${p.name} | ${reason}`);
   for (const other of aliveParticipants(state)) {
     if (other.id === p.id) continue;
     other.fear = clamp(other.fear + 15, 0, 100);
@@ -1069,7 +1358,7 @@ function killParticipant(state, p, reason) {
 function deathCheck(state) {
   state.latestDeath = null;
   if (CONFIG.day1To2DeathDisabled && state.day <= 2) {
-    state.dailyLog.push("[DEATH CHECK] disabled (Day 1-2)");
+    state.dailyLog.push("[사망판정] Day 1-2 비활성");
     return;
   }
 
@@ -1092,7 +1381,7 @@ function deathCheck(state) {
     }
   }
 
-  state.dailyLog.push("[DEATH CHECK] no death");
+  state.dailyLog.push("[사망판정] 사망자 없음");
 }
 
 function applyRunawayLeaderBalance(state) {
@@ -1106,16 +1395,16 @@ function applyRunawayLeaderBalance(state) {
     sorted[i].ambition = clamp(sorted[i].ambition + 10, 0, 100);
     sorted[i].jealousy = clamp(sorted[i].jealousy + 15, 0, 100);
   }
-  state.dailyLog.push("[BALANCE] runaway leader correction applied");
+  state.dailyLog.push("[밸런스] 선두 독주 보정 적용");
 }
 
 function relationEventText(state) {
   const relEvent = state.dailyRelationshipEvents[0];
-  if (relEvent) return relEvent.replace(/^\[(REL FORM|REL BREAK|TRIANGLE)\]\s*/, "");
-  const betrayalLine = state.dailyLog.find((line) => line.includes("[BETRAYAL TRIGGER]"));
-  if (betrayalLine) return betrayalLine.replace("[BETRAYAL TRIGGER] ", "");
-  const allianceLine = state.dailyLog.find((line) => line.includes("[ALLIANCE]"));
-  if (allianceLine) return allianceLine.replace("[ALLIANCE] ", "");
+  if (relEvent) return relEvent.replace(/^\[(연애 형성|연애 파기|삼각관계)\]\s*/, "");
+  const betrayalLine = state.dailyLog.find((line) => line.includes("[배신 발동]"));
+  if (betrayalLine) return betrayalLine.replace("[배신 발동] ", "");
+  const allianceLine = state.dailyLog.find((line) => line.includes("[동맹]"));
+  if (allianceLine) return allianceLine.replace("[동맹] ", "");
   return "관계는 냉각과 접근을 반복했지만 고정되지 않았다.";
 }
 
@@ -1133,7 +1422,8 @@ function majorEventText(state) {
     state.dramaScore >= 80 ? "EXTREME" : state.dramaScore >= 60 ? "HIGH" : state.dramaScore >= 40 ? "MEDIUM" : "LOW";
   const death = state.latestDeath;
   if (death) return `[${intensity}] ${death.name}의 이탈이 섬의 균형을 재정의했다.`;
-  const hostLine = state.dailyLog.find((line) => line.includes("[HOST]") && line.includes("executed"));
+  if (state.detectionEventToday) return `[${intensity}] 제작진 개입 의혹이 공개 수면 위로 떠올랐다.`;
+  const hostLine = state.dailyLog.find((line) => line.includes("[주최자]"));
   if (hostLine) return `[${intensity}] 제작진 개입 흔적이 통계에 미세한 왜곡을 남겼다.`;
   const cage = state.cageVictimId ? participantById(state, state.cageVictimId) : null;
   if (cage) return `[${intensity}] ${cage.name}의 공포 지표가 급상승했다.`;
@@ -1141,10 +1431,10 @@ function majorEventText(state) {
 }
 
 function generateStory(state) {
-  const p1 = `Day ${state.day}. ${majorEventText(state)}`;
+  const p1 = `${state.day}일차. ${majorEventText(state)}`;
   const p2 = `관계 레이어: ${relationEventText(state)}`;
-  const p3 = `랭킹 레이어: ${rankingEventText(state)} | Drama Score ${state.dramaScore}`;
-  const p4 = state.latestDeath ? `DEATH 레이어: ${state.latestDeath.name} / ${state.latestDeath.reason}` : null;
+  const p3 = `랭킹 레이어: ${rankingEventText(state)} | 드라마 점수 ${state.dramaScore}`;
+  const p4 = state.latestDeath ? `사망 레이어: ${state.latestDeath.name} / ${state.latestDeath.reason}` : null;
 
   const lines = [p1, p2, p3];
   if (p4) lines.push(p4);
@@ -1196,6 +1486,10 @@ function resetDailyFlags(state) {
   state.dailyRelationshipEvents = [];
   state.confrontationEventsToday = [];
   state.hostEventToday = false;
+  state.detectionEventToday = false;
+  state.hostActionsUsedToday = 0;
+  state.hostProducerNote = "";
+  if (CONFIG.enableHostInfluence) state.hostInfluence = clamp(state.hostInfluence + 10, 0, 100);
 }
 
 function nextDay(state) {
@@ -1204,12 +1498,19 @@ function nextDay(state) {
   state.dailyLog = [];
   state.cageVictimId = null;
   state.triangleDetected = null;
+  state.hostActionsUsedToday = 0;
+  state.hostProducerNote = "";
+  state.freeShockTokenToday = !!(CONFIG.enableFreeShockToken && state.dramaScore < 35);
+  if (state.freeShockTokenToday) {
+    state.dailyLog.push("[주최자] 무료 쇼크 토큰 활성화");
+  }
 
   socialPhase(state);
   gamePhase(state);
   rankingUpdate(state);
   tradePhase(state);
   applyHostIntervention(state);
+  tryDetectionEvent(state);
   nightPhase(state);
   deathCheck(state);
   computeDramaScore(state);
@@ -1230,16 +1531,19 @@ function queueHostAction(state) {
   const type = document.getElementById("host-action").value;
   const targetA = document.getElementById("host-target-a").value;
   const targetB = document.getElementById("host-target-b").value;
+  const param = Number(document.getElementById("host-param").value);
 
   const rule = HOST_ACTIONS[type];
   if (!rule) return;
   if (!targetA) return;
   if (rule.needB && (!targetB || targetA === targetB)) return;
+  if (rule.needsParam && !Number.isFinite(param)) return;
 
   state.pendingHostAction = {
     type,
     targetA,
     targetB: rule.needB ? targetB : null,
+    param: rule.needsParam ? clamp(Math.round(param), 1, 3) : undefined,
   };
   saveState(state);
   render(state);
@@ -1265,8 +1569,8 @@ function setHostTargetOptions(state) {
 function renderTopBar(state) {
   const alive = aliveParticipants(state).length;
   const winner = state.winnerId ? participantById(state, state.winnerId) : null;
-  const status = state.gameOver ? `SEASON END | WINNER: ${winner ? winner.name : "N/A"}` : "SEASON RUNNING";
-  document.getElementById("season-meta").textContent = `Day ${state.day}/20 | Alive ${alive}/8 | Suspicion ${state.suspicion} | Drama ${state.dramaScore} | ${status}`;
+  const status = state.gameOver ? `시즌 종료 | 우승 ${winner ? winner.name : "-"}` : "시즌 진행 중";
+  document.getElementById("season-meta").textContent = `Day ${state.day}/20 | 생존 ${alive}/8 | 드라마 ${state.dramaScore} | ${status}`;
 }
 
 function renderPriority(state) {
@@ -1276,20 +1580,20 @@ function renderPriority(state) {
   const top3 = sorted.slice(0, 3);
   top3.forEach((p, idx) => {
     const li = document.createElement("li");
-    li.textContent = `${idx + 1}. ${p.name} - ${p.points}pt`;
+    li.textContent = `${idx + 1}. ${p.name} - ${p.points}점`;
     top3El.appendChild(li);
   });
-  if (!top3.length) top3El.innerHTML = "<li>no data</li>";
+  if (!top3.length) top3El.innerHTML = "<li>데이터 없음</li>";
 
   const cage = state.cageVictimId ? participantById(state, state.cageVictimId) : null;
   const cageBox = document.getElementById("cage-highlight");
-  cageBox.textContent = cage ? `${cage.name} | Stress ${cage.stress} | Fear ${cage.fear}` : "오늘 케이지 기록 없음";
+  cageBox.textContent = cage ? `${cage.name} | 스트레스 ${cage.stress} | 공포 ${cage.fear}` : "오늘 케이지 기록 없음";
 
   const alliancesEl = document.getElementById("alliances-list");
   alliancesEl.innerHTML = "";
   const alliances = Object.values(state.alliances);
   if (!alliances.length) {
-    alliancesEl.innerHTML = "<li>active alliance 없음</li>";
+    alliancesEl.innerHTML = "<li>활성 동맹 없음</li>";
   } else {
     alliances.forEach((alliance) => {
       const names = alliance.members.map((id) => participantById(state, id)?.name ?? id).join(" + ");
@@ -1305,12 +1609,12 @@ function renderPriority(state) {
   const triangleView = document.getElementById("triangle-view");
   triangleView.textContent = triangle
     ? `${triangle[0].name} -> ${triangle[1].name} -> ${triangle[2].name} -> ${triangle[0].name}`
-    : "명확한 삼각 구도 없음";
+    : "뚜렷한 삼각관계 없음";
 
   const deathBanner = document.getElementById("death-banner");
   if (state.latestDeath) {
     deathBanner.classList.remove("hidden");
-    deathBanner.textContent = `DEATH: ${state.latestDeath.name} / ${state.latestDeath.reason}`;
+    deathBanner.textContent = `사망: ${state.latestDeath.name} / ${state.latestDeath.reason}`;
   } else {
     deathBanner.classList.add("hidden");
     deathBanner.textContent = "";
@@ -1335,9 +1639,9 @@ function renderBroadcast(state) {
 }
 
 function statTag(value, warn, danger) {
-  if (value >= danger) return '<span class="tag danger">HIGH</span>';
-  if (value >= warn) return '<span class="tag warn">WARN</span>';
-  return '<span class="tag">STABLE</span>';
+  if (value >= danger) return '<span class="tag danger">위험</span>';
+  if (value >= warn) return '<span class="tag warn">주의</span>';
+  return '<span class="tag">안정</span>';
 }
 
 function renderParticipants(state) {
@@ -1353,17 +1657,17 @@ function renderParticipants(state) {
     const card = document.createElement("article");
     card.className = `participant-card${p.alive ? "" : " dead"}`;
 
-    const alliance = p.allianceId && state.alliances[p.allianceId] ? "ALLIED" : "SOLO";
+    const alliance = p.allianceId && state.alliances[p.allianceId] ? "동맹" : "단독";
     card.innerHTML = `
-      <div class="row-split"><strong>${p.name}</strong><span>${p.alive ? "ALIVE" : "DEAD"}</span></div>
+      <div class="row-split"><strong>${p.name}</strong><span>${p.alive ? "생존" : "사망"}</span></div>
       <div class="row-split"><span>${p.role}</span><span>${p.gender}/${p.age}</span></div>
-      <div class="row-split"><span>Points ${p.points}</span><span>Rank ${p.latestRank ?? "-"}</span></div>
-      <div class="row-split"><span>Stress ${toPercent(p.stress)}</span>${statTag(p.stress, 65, 85)}</div>
-      <div class="row-split"><span>Fear ${toPercent(p.fear)}</span>${statTag(p.fear, 55, 80)}</div>
-      <div class="row-split"><span>Jealousy ${toPercent(p.jealousy)}</span>${statTag(p.jealousy, 60, 80)}</div>
-      <div class="row-split"><span>Loneliness ${toPercent(p.loneliness)}</span>${statTag(p.loneliness, 55, 75)}</div>
-      <div class="row-split"><span>Stability ${toPercent(p.stability)}</span>${statTag(100 - p.stability, 50, 75)}</div>
-      <div class="row-split"><span>Ambition ${toPercent(p.ambition)}</span><span>${alliance}</span></div>
+      <div class="row-split"><span>점수 ${p.points}</span><span>순위 ${p.latestRank ?? "-"}</span></div>
+      <div class="row-split"><span>스트레스 ${toPercent(p.stress)}</span>${statTag(p.stress, 65, 85)}</div>
+      <div class="row-split"><span>공포 ${toPercent(p.fear)}</span>${statTag(p.fear, 55, 80)}</div>
+      <div class="row-split"><span>질투 ${toPercent(p.jealousy)}</span>${statTag(p.jealousy, 60, 80)}</div>
+      <div class="row-split"><span>고립 ${toPercent(p.loneliness)}</span>${statTag(p.loneliness, 55, 75)}</div>
+      <div class="row-split"><span>안정성 ${toPercent(p.stability)}</span>${statTag(100 - p.stability, 50, 75)}</div>
+      <div class="row-split"><span>야망 ${toPercent(p.ambition)}</span><span>${alliance}</span></div>
     `;
 
     grid.appendChild(card);
@@ -1372,16 +1676,22 @@ function renderParticipants(state) {
 
 function renderHostQueue(state) {
   const view = document.getElementById("host-queue-view");
+  if (state.hostProducerNote) {
+    view.textContent = `${state.hostProducerNote} | 사용 ${state.hostActionsUsedToday}/${CONFIG.hostActionsPerDay}`;
+    return;
+  }
   if (!state.pendingHostAction) {
-    view.textContent = "큐 없음";
+    view.textContent = `대기중 | 사용 ${state.hostActionsUsedToday}/${CONFIG.hostActionsPerDay}`;
     return;
   }
   const a = participantById(state, state.pendingHostAction.targetA);
   const b = state.pendingHostAction.targetB ? participantById(state, state.pendingHostAction.targetB) : null;
-  view.textContent = `큐: ${state.pendingHostAction.type} | ${a?.name ?? "?"}${b ? `, ${b.name}` : ""}`;
+  const actionLabel = HOST_ACTION_LABEL[state.pendingHostAction.type] ?? state.pendingHostAction.type;
+  view.textContent = `준비됨: ${actionLabel} | ${a?.name ?? "?"}${b ? `, ${b.name}` : ""}`;
 }
 
 function render(state) {
+  if (!state) return;
   renderTopBar(state);
   setHostTargetOptions(state);
   renderHostQueue(state);
@@ -1390,10 +1700,156 @@ function render(state) {
   renderParticipants(state);
 }
 
+function showMainScreen() {
+  document.getElementById("main-screen").classList.remove("hidden");
+  document.getElementById("game-screen").classList.add("hidden");
+}
+
+function showGameScreen() {
+  document.getElementById("main-screen").classList.add("hidden");
+  document.getElementById("game-screen").classList.remove("hidden");
+}
+
+function updateMainStatus(stateRef) {
+  const status = document.getElementById("menu-status");
+  const loaded = loadState();
+  if (!loaded) {
+    status.textContent = "저장 데이터 없음";
+    return;
+  }
+  const s = hydrateState(loaded);
+  const winner = s.winnerId ? participantById(s, s.winnerId)?.name ?? "-" : "-";
+  status.textContent = `저장: Day ${s.day}, 생존 ${aliveParticipants(s).length}, 드라마 ${s.dramaScore}, 우승자 ${winner}`;
+  stateRef.state = s;
+}
+
+function setAgendaTargetOptions(state) {
+  const select = document.getElementById("agenda-target-select");
+  select.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "없음";
+  select.appendChild(none);
+  for (const p of state.participants) {
+    const option = document.createElement("option");
+    option.value = p.id;
+    option.textContent = `${p.name} (${p.role})`;
+    select.appendChild(option);
+  }
+  select.value = state.hostAgendaTargetId || "";
+}
+
+function updateHostActionControls() {
+  const actionType = document.getElementById("host-action").value;
+  const rule = HOST_ACTIONS[actionType];
+  const targetB = document.getElementById("host-target-b");
+  const param = document.getElementById("host-param");
+
+  targetB.disabled = !rule?.needB;
+  param.disabled = !rule?.needsParam;
+  param.innerHTML = "";
+
+  if (actionType === "TRIGGER_CONFLICT") {
+    [
+      ["1", "약"],
+      ["2", "중"],
+      ["3", "강"],
+    ].forEach(([v, t]) => {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = t;
+      param.appendChild(o);
+    });
+    param.value = "2";
+  } else if (actionType === "RIG_GAME_DIFFICULTY") {
+    [
+      ["1", "하향(-15)"],
+      ["2", "상향(+15)"],
+      ["3", "강상향(+20)"],
+    ].forEach(([v, t]) => {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = t;
+      param.appendChild(o);
+    });
+    param.value = "2";
+  } else {
+    const o = document.createElement("option");
+    o.value = "1";
+    o.textContent = "기본";
+    param.appendChild(o);
+    param.value = "1";
+  }
+}
+
 function bindEvents(stateRef) {
-  document.getElementById("new-game-btn").addEventListener("click", () => {
-    stateRef.state = initState();
+  document.getElementById("menu-new-game").addEventListener("click", () => {
+    stateRef.state = hydrateState(initState());
     render(stateRef.state);
+    showGameScreen();
+    updateMainStatus(stateRef);
+  });
+
+  document.getElementById("menu-continue").addEventListener("click", () => {
+    const loaded = loadState();
+    if (!loaded) {
+      document.getElementById("menu-status").textContent = "이어할 저장 데이터가 없습니다.";
+      return;
+    }
+    stateRef.state = hydrateState(loaded);
+    render(stateRef.state);
+    showGameScreen();
+  });
+
+  document.getElementById("menu-load-game").addEventListener("click", () => {
+    const raw = window.prompt("저장 JSON을 붙여넣으세요.");
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      stateRef.state = hydrateState(parsed);
+      saveState(stateRef.state);
+      render(stateRef.state);
+      showGameScreen();
+      updateMainStatus(stateRef);
+    } catch {
+      document.getElementById("menu-status").textContent = "불러오기 실패: JSON 형식 오류";
+    }
+  });
+
+  document.getElementById("menu-settings").addEventListener("click", () => {
+    if (!stateRef.state) stateRef.state = hydrateState(initState());
+    setAgendaTargetOptions(stateRef.state);
+    document.getElementById("settings-panel").classList.remove("hidden");
+  });
+
+  document.getElementById("settings-close").addEventListener("click", () => {
+    document.getElementById("settings-panel").classList.add("hidden");
+  });
+
+  document.getElementById("settings-save").addEventListener("click", () => {
+    if (!stateRef.state) return;
+    const v = document.getElementById("agenda-target-select").value;
+    stateRef.state.hostAgendaTargetId = v || null;
+    saveState(stateRef.state);
+    document.getElementById("settings-panel").classList.add("hidden");
+    document.getElementById("menu-status").textContent = `설정 저장 완료 (${v ? "편애 대상 지정" : "편애 대상 없음"})`;
+  });
+
+  document.getElementById("menu-exit").addEventListener("click", () => {
+    window.close();
+    document.getElementById("menu-status").textContent = "브라우저 정책으로 자동 종료되지 않으면 탭을 닫아주세요.";
+  });
+
+  document.getElementById("back-main-btn").addEventListener("click", () => {
+    if (stateRef.state) saveState(stateRef.state);
+    updateMainStatus(stateRef);
+    showMainScreen();
+  });
+
+  document.getElementById("new-game-btn").addEventListener("click", () => {
+    stateRef.state = hydrateState(initState());
+    render(stateRef.state);
+    updateMainStatus(stateRef);
   });
 
   document.getElementById("queue-host-btn").addEventListener("click", () => {
@@ -1403,22 +1859,28 @@ function bindEvents(stateRef) {
   document.getElementById("next-day-btn").addEventListener("click", () => {
     nextDay(stateRef.state);
     render(stateRef.state);
+    saveState(stateRef.state);
+    updateMainStatus(stateRef);
   });
 
   document.getElementById("host-action").addEventListener("change", () => {
-    const action = document.getElementById("host-action").value;
-    const needsB = HOST_ACTIONS[action]?.needB;
-    document.getElementById("host-target-b").disabled = !needsB;
+    updateHostActionControls();
   });
 }
 
 function bootstrap() {
   const loaded = loadState();
-  const stateRef = { state: hydrateState(loaded || initState()) };
+  const stateRef = { state: loaded ? hydrateState(loaded) : null };
   bindEvents(stateRef);
-  const action = document.getElementById("host-action").value;
-  document.getElementById("host-target-b").disabled = !HOST_ACTIONS[action].needB;
+  updateHostActionControls();
+  updateMainStatus(stateRef);
+
+  if (!stateRef.state) {
+    showMainScreen();
+    return;
+  }
   render(stateRef.state);
+  showMainScreen();
 }
 
 bootstrap();

@@ -3,84 +3,122 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ISLAND BROADCAST - DARK SURVIVAL SIM</title>
+    <title>아일랜드 브로드캐스트 - 다크 서바이벌</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div class="bg-layer"></div>
-    <main class="app-shell">
+
+    <section id="main-screen" class="main-screen">
+      <div class="main-card panel">
+        <p class="kicker">PSYCHOLOGICAL SURVIVAL REALITY</p>
+        <h1>아일랜드 브로드캐스트</h1>
+        <p class="meta-line">주최자 개입 1일 1회 · 의심 누적 · 다크 생존 시뮬레이션</p>
+
+        <div class="main-menu">
+          <button id="menu-new-game" class="primary">새 게임</button>
+          <button id="menu-load-game">불러오기</button>
+          <button id="menu-continue">이어하기</button>
+          <button id="menu-settings">설정</button>
+          <button id="menu-exit" class="ghost">종료</button>
+        </div>
+
+        <div id="menu-status" class="meta-line"></div>
+      </div>
+
+      <div id="settings-panel" class="settings-panel panel hidden">
+        <h2>설정</h2>
+        <label>주최자 편애 대상
+          <select id="agenda-target-select"></select>
+        </label>
+        <div class="settings-actions">
+          <button id="settings-save" class="primary">저장</button>
+          <button id="settings-close" class="ghost">닫기</button>
+        </div>
+      </div>
+    </section>
+
+    <main id="game-screen" class="app-shell hidden">
       <header class="panel topbar">
         <div>
-          <p class="kicker">PSYCHOLOGICAL SURVIVAL REALITY</p>
-          <h1>ISLAND BROADCAST</h1>
+          <p class="kicker">심리 생존 리얼리티</p>
+          <h1>아일랜드 브로드캐스트</h1>
           <p id="season-meta" class="meta-line"></p>
         </div>
         <div class="topbar-actions">
+          <button id="back-main-btn" class="ghost">메인 화면</button>
           <button id="new-game-btn" class="ghost">새 시즌</button>
-          <button id="next-day-btn" class="primary">DAY 진행</button>
+          <button id="next-day-btn" class="primary">하루 진행</button>
         </div>
       </header>
 
       <section class="panel host-panel">
-        <h2>HOST INTERVENTION (1/day)</h2>
+        <h2>주최자 개입 (1일 1회)</h2>
         <div class="host-controls">
-          <label>Action
+          <label>개입 유형
             <select id="host-action">
-              <option value="BOOST_POINTS">BOOST_POINTS (+2)</option>
-              <option value="REDUCE_STRESS">REDUCE_STRESS (-20)</option>
-              <option value="SPREAD_RUMOR">SPREAD_RUMOR (A,B)</option>
-              <option value="INCREASE_ATTRACTION">INCREASE_ATTRACTION (A,B,+15)</option>
-              <option value="TRIGGER_CONFLICT">TRIGGER_CONFLICT (A,B)</option>
-              <option value="ALTER_GAME_DIFFICULTY">ALTER_GAME_DIFFICULTY</option>
+              <option value="BOOST_POINTS">점수 증폭 (+2)</option>
+              <option value="REDUCE_STRESS">스트레스 완화 (-20)</option>
+              <option value="SPREAD_RUMOR">루머 확산 (출처,표적)</option>
+              <option value="INCREASE_ATTRACTION">호감 조작 (A,B)</option>
+              <option value="TRIGGER_CONFLICT">충돌 유도 (A,B)</option>
+              <option value="RIG_GAME_DIFFICULTY">게임 난이도 조작</option>
             </select>
           </label>
-          <label>Target A
+          <label>대상 A
             <select id="host-target-a"></select>
           </label>
-          <label>Target B
+          <label>대상 B
             <select id="host-target-b"></select>
           </label>
-          <button id="queue-host-btn">개입 큐 등록</button>
+          <label>강도/옵션
+            <select id="host-param">
+              <option value="1">약</option>
+              <option value="2" selected>중</option>
+              <option value="3">강</option>
+            </select>
+          </label>
+          <button id="queue-host-btn">개입 실행</button>
         </div>
         <p id="host-queue-view" class="meta-line"></p>
       </section>
 
       <section class="layout">
         <aside class="panel priority-panel">
-          <h2>UI PRIORITY</h2>
+          <h2>우선 표시</h2>
           <div id="death-banner" class="death-banner hidden"></div>
 
           <section>
-            <h3>1. TOP 3 RANKING</h3>
+            <h3>1. 상위 3위 순위</h3>
             <ol id="top3-list" class="simple-list"></ol>
           </section>
 
           <section>
-            <h3>2. NIGHT CAGE</h3>
+            <h3>2. 케이지 대상</h3>
             <div id="cage-highlight" class="highlight-box"></div>
           </section>
 
           <section>
-            <h3>3. ACTIVE ALLIANCES</h3>
+            <h3>3. 활성 동맹</h3>
             <ul id="alliances-list" class="simple-list"></ul>
           </section>
 
           <section>
-            <h3>4. ATTRACTION TRIANGLE</h3>
+            <h3>4. 삼각관계</h3>
             <div id="triangle-view" class="highlight-box"></div>
           </section>
         </aside>
 
         <section class="panel center-panel">
-          <h2>DAILY BROADCAST</h2>
+          <h2>오늘의 방송</h2>
           <article id="broadcast-text" class="broadcast"></article>
 
-          <h2>DAILY EVENT LOG</h2>
+          <h2>사건 로그</h2>
           <div id="event-log" class="event-log"></div>
         </section>
 
         <aside class="panel right-panel">
-          <h2>PARTICIPANTS</h2>
+          <h2>참가자</h2>
           <div id="participants-grid" class="participants-grid"></div>
         </aside>
       </section>
