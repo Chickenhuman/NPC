@@ -3,122 +3,88 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NPC 신문형 시뮬레이터 MVP</title>
+    <title>ISLAND BROADCAST - DARK SURVIVAL SIM</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <section id="start-screen" class="start-screen">
-      <div class="start-shell">
-        <header class="card start-hero">
-          <h1>라일리타운 데일리 시뮬레이터</h1>
-          <p>감정/관계 자율 NPC가 하루 단위로 행동하고, 사건이 신문 헤드라인으로 축약되는 사회관계 시뮬레이션</p>
-          <div class="start-controls">
-            <label>시작 Seed <input id="start-seed-input" type="number" /></label>
-            <button id="start-seed-random">랜덤 Seed</button>
-            <button id="start-new-game" class="primary">새 게임 시작</button>
-            <button id="start-load-game">저장 불러오기</button>
-          </div>
-          <div id="start-status" class="start-status"></div>
-        </header>
-
-        <section class="card manual">
-          <h2>게임 설명서</h2>
-          <h3>1. 목표</h3>
-          <p>플레이어는 NPC를 직접 조종하지 않고, 하루 진행을 통해 관계망이 어떻게 변하는지 관찰합니다. 핵심 목표는 갈등, 화해, 스캔들, 동맹이 어떤 조건에서 생기는지 읽어내고 세계의 흐름을 관리하는 것입니다.</p>
-
-          <h3>2. 기본 진행</h3>
-          <ol>
-            <li><strong>Next Day</strong>를 누르면 하루가 진행됩니다.</li>
-            <li>각 NPC가 1~2회 행동(TALK/HELP/GOSSIP/INSULT/APOLOGIZE/WITHDRAW)을 선택합니다.</li>
-            <li>관계/감정/루머가 누적되어 이벤트(FIGHT/RECONCILE/SCANDAL/BURNOUT/ALLIANCE/EXPOSE)가 발생합니다.</li>
-            <li>중요 사건은 신문 헤드라인 3개로 추려집니다.</li>
-          </ol>
-
-          <h3>3. 화면 읽는 법</h3>
-          <ul>
-            <li><strong>좌측 NPC 목록</strong>: 스트레스가 높은 인물부터 정렬됩니다.</li>
-            <li><strong>오늘의 신문</strong>: 중요도 높은 사건 3개만 요약됩니다.</li>
-            <li><strong>오늘의 사건 로그</strong>: 그날 발생한 행동/이벤트 전체 기록입니다.</li>
-            <li><strong>NPC 클릭</strong>: 감정 3종, 최근 기억, 관계 TOP3를 확인합니다.</li>
-          </ul>
-
-          <h3>4. 핵심 규칙</h3>
-          <ul>
-            <li>감정/욕구는 0~100, 관계는 -100~100으로 클램프됩니다.</li>
-            <li>행동은 순차 적용, 이벤트는 하루 끝에 일괄 판정됩니다.</li>
-            <li>이벤트는 하루 최대 5개, 같은 타입은 최대 2개만 채택됩니다.</li>
-            <li>같은 인물이 헤드라인에 과도하게 반복 노출되지 않게 제한됩니다.</li>
-          </ul>
-
-          <h3>5. 루머와 스캔들</h3>
-          <p>GOSSIP 행동으로 루머가 생성/강화됩니다. 루머의 <strong>severity</strong>와 <strong>spread</strong>가 임계치를 넘으면 SCANDAL이 발생합니다. 스캔들 발생 후 루머는 완전히 사라지지 않고 잔불 수준으로 리셋됩니다.</p>
-
-          <h3>6. 저장/재현</h3>
-          <ul>
-            <li>저장은 브라우저 localStorage(<code>sim_save_v1</code>)에 보관됩니다.</li>
-            <li>Seed가 같으면 동일한 RNG 흐름으로 같은 결과를 재현할 수 있습니다.</li>
-            <li>저장 데이터에는 버전 정보가 있어 이후 확장 시 마이그레이션이 가능합니다.</li>
-          </ul>
-
-          <h3>7. 디버그 기능</h3>
-          <ul>
-            <li><strong>강제 싸움</strong>: FIGHT 조건을 즉시 주입합니다.</li>
-            <li><strong>강제 루머</strong>: SCANDAL/EXPOSE 조건 루머를 주입합니다.</li>
-          </ul>
-        </section>
-      </div>
-    </section>
-
-    <div id="game-screen" class="app hidden">
-      <header class="topbar card">
-        <div class="topbar-left">
-          <h1>라일리타운 데일리</h1>
-          <div id="world-info"></div>
+    <div class="bg-layer"></div>
+    <main class="app-shell">
+      <header class="panel topbar">
+        <div>
+          <p class="kicker">PSYCHOLOGICAL SURVIVAL REALITY</p>
+          <h1>ISLAND BROADCAST</h1>
+          <p id="season-meta" class="meta-line"></p>
         </div>
-        <div class="topbar-right">
-          <button id="back-to-start">시작 화면</button>
-          <label>Seed <input id="seed-input" type="number" /></label>
-          <button id="seed-apply">Apply Seed</button>
-          <button id="seed-random">Random Seed</button>
-          <button id="next-day" class="primary">Next Day</button>
+        <div class="topbar-actions">
+          <button id="new-game-btn" class="ghost">새 시즌</button>
+          <button id="next-day-btn" class="primary">DAY 진행</button>
         </div>
       </header>
 
-      <main class="layout">
-        <aside class="sidebar card">
-          <h2>NPC 목록</h2>
-          <ul id="npc-list" class="npc-list"></ul>
+      <section class="panel host-panel">
+        <h2>HOST INTERVENTION (1/day)</h2>
+        <div class="host-controls">
+          <label>Action
+            <select id="host-action">
+              <option value="BOOST_POINTS">BOOST_POINTS (+2)</option>
+              <option value="REDUCE_STRESS">REDUCE_STRESS (-20)</option>
+              <option value="SPREAD_RUMOR">SPREAD_RUMOR (A,B)</option>
+              <option value="INCREASE_ATTRACTION">INCREASE_ATTRACTION (A,B,+15)</option>
+              <option value="TRIGGER_CONFLICT">TRIGGER_CONFLICT (A,B)</option>
+              <option value="ALTER_GAME_DIFFICULTY">ALTER_GAME_DIFFICULTY</option>
+            </select>
+          </label>
+          <label>Target A
+            <select id="host-target-a"></select>
+          </label>
+          <label>Target B
+            <select id="host-target-b"></select>
+          </label>
+          <button id="queue-host-btn">개입 큐 등록</button>
+        </div>
+        <p id="host-queue-view" class="meta-line"></p>
+      </section>
+
+      <section class="layout">
+        <aside class="panel priority-panel">
+          <h2>UI PRIORITY</h2>
+          <div id="death-banner" class="death-banner hidden"></div>
+
+          <section>
+            <h3>1. TOP 3 RANKING</h3>
+            <ol id="top3-list" class="simple-list"></ol>
+          </section>
+
+          <section>
+            <h3>2. NIGHT CAGE</h3>
+            <div id="cage-highlight" class="highlight-box"></div>
+          </section>
+
+          <section>
+            <h3>3. ACTIVE ALLIANCES</h3>
+            <ul id="alliances-list" class="simple-list"></ul>
+          </section>
+
+          <section>
+            <h3>4. ATTRACTION TRIANGLE</h3>
+            <div id="triangle-view" class="highlight-box"></div>
+          </section>
         </aside>
 
-        <section class="content">
-          <section class="card newspaper">
-            <h2>오늘의 신문</h2>
-            <div id="headlines" class="headlines"></div>
-          </section>
+        <section class="panel center-panel">
+          <h2>DAILY BROADCAST</h2>
+          <article id="broadcast-text" class="broadcast"></article>
 
-          <section class="card logs">
-            <h2>오늘의 사건 로그</h2>
-            <div id="log-list" class="log-list"></div>
-          </section>
+          <h2>DAILY EVENT LOG</h2>
+          <div id="event-log" class="event-log"></div>
         </section>
-      </main>
 
-      <footer class="card debug-panel">
-        <strong>Debug</strong>
-        <button id="debug-fight">강제 싸움(FIGHT) 유도</button>
-        <button id="debug-rumor">강제 루머(SCANDAL) 유도</button>
-        <button id="save-btn">저장</button>
-        <button id="load-btn">불러오기</button>
-        <span id="debug-status"></span>
-      </footer>
-    </div>
-
-    <div id="npc-modal" class="modal hidden">
-      <div class="modal-content card">
-        <button id="modal-close" class="close-btn">닫기</button>
-        <div id="npc-detail"></div>
-      </div>
-    </div>
+        <aside class="panel right-panel">
+          <h2>PARTICIPANTS</h2>
+          <div id="participants-grid" class="participants-grid"></div>
+        </aside>
+      </section>
+    </main>
 
     <script src="main.js"></script>
   </body>
