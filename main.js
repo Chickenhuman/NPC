@@ -248,6 +248,10 @@ function aliveParticipants(state) {
   return state.participants.filter((p) => p.alive);
 }
 
+function pairKey(aId, bId) {
+  return [aId, bId].sort().join("::");
+}
+
 function toPercent(v) {
   return `${Math.round(v)}%`;
 }
@@ -266,7 +270,9 @@ function createParticipantFromArchetype(archetype) {
     fear: archetype.fear,
     ambition: archetype.ambition,
     charisma: archetype.charisma,
-    jealousy: archetype.jealousy,
+    jealousy: randInt(10, 40),
+    loneliness: 30,
+    stability: clamp(100 - archetype.stress, 0, 100),
     trustBaseline: archetype.trustBaseline,
     traits: { ...archetype.traits },
     trust: {},
@@ -276,6 +282,8 @@ function createParticipantFromArchetype(archetype) {
     wasNightCageToday: false,
     difficultyOffset: 0,
     latestRank: null,
+    lowRankStreak: 0,
+    violentEventBonus: 0,
   };
 }
 
@@ -345,13 +353,20 @@ function initState() {
     day: 1,
     participants,
     alliances: {},
+    relationships: {},
     rankings: [],
     top3: [],
     cageVictimId: null,
+    triangleDetected: null,
     latestDeath: null,
     deaths: [],
+    dramaScore: 0,
     dailyLog: [],
     dailyBroadcast: "시즌 초기화 완료.",
+    dailyRelationshipEvents: [],
+    newAlliancesToday: [],
+    confrontationEventsToday: [],
+    hostEventToday: false,
     pendingHostAction: null,
     hostActionUsedDay: null,
     suspicion: 0,
@@ -378,6 +393,27 @@ function loadState() {
   }
 }
 
+function hydrateState(state) {
+  if (!state.relationships) state.relationships = {};
+  if (!Array.isArray(state.dailyRelationshipEvents)) state.dailyRelationshipEvents = [];
+  if (!Array.isArray(state.newAlliancesToday)) state.newAlliancesToday = [];
+  if (!Array.isArray(state.confrontationEventsToday)) state.confrontationEventsToday = [];
+  if (typeof state.dramaScore !== "number") state.dramaScore = 0;
+  if (!("triangleDetected" in state)) state.triangleDetected = null;
+  if (!("hostEventToday" in state)) state.hostEventToday = false;
+
+  for (const p of state.participants) {
+    if (typeof p.jealousy !== "number") p.jealousy = randInt(10, 40);
+    if (typeof p.loneliness !== "number") p.loneliness = 30;
+    if (typeof p.stability !== "number") p.stability = clamp(100 - p.stress, 0, 100);
+    if (typeof p.lowRankStreak !== "number") p.lowRankStreak = 0;
+    if (typeof p.violentEventBonus !== "number") p.violentEventBonus = 0;
+    if (!p.role) p.role = "UNDEFINED";
+    if (!p.traits) p.traits = {};
+  }
+  return state;
+}
+
 function livingTargets(state, actorId) {
   return aliveParticipants(state).filter((p) => p.id !== actorId);
 }
@@ -394,7 +430,8 @@ function allianceBonus(state, p) {
 function growTrust(state, from, toId, delta) {
   const allied = from.allianceId && from.allianceId === participantById(state, toId)?.allianceId;
   const trustGainMultiplier = from.traits?.trustGainMultiplier ?? 1;
-  const scaledDelta = delta > 0 ? delta * trustGainMultiplier : delta;
+  const desperationBoost = from.loneliness > 70 ? 1.2 : 1;
+  const scaledDelta = delta > 0 ? delta * trustGainMultiplier * desperationBoost : delta;
   const realDelta = allied && scaledDelta > 0 ? scaledDelta * 1.15 : scaledDelta;
   from.trust[toId] = clamp(from.trust[toId] + realDelta, -100, 100);
 }
@@ -408,16 +445,17 @@ function growAttraction(from, toId, delta) {
 function applySocialAction(state, actor, target, actionType) {
   const log = [];
   if (!actor || !target) return log;
+  const trustGain = randInt(5, 15);
 
   if (actionType === "TALK") {
-    growTrust(state, actor, target.id, 4);
+    growTrust(state, actor, target.id, trustGain);
     actor.stress = clamp(actor.stress - 3, 0, 100);
     target.stress = clamp(target.stress - 1, 0, 100);
     log.push(`${actor.name} -> TALK -> ${target.name}`);
   }
 
   if (actionType === "FORM_ALLIANCE") {
-    growTrust(state, actor, target.id, 6);
+    growTrust(state, actor, target.id, trustGain);
     growAttraction(actor, target.id, 5);
     log.push(`${actor.name}가 ${target.name}에게 동맹 신호`);
   }
@@ -433,7 +471,7 @@ function applySocialAction(state, actor, target, actionType) {
 
   if (actionType === "FLIRT") {
     growAttraction(actor, target.id, 8);
-    growTrust(state, actor, target.id, 2);
+    growTrust(state, actor, target.id, trustGain);
     target.fear = clamp(target.fear - 2, 0, 100);
     log.push(`${actor.name} -> FLIRT -> ${target.name}`);
   }
@@ -447,8 +485,9 @@ function applySocialAction(state, actor, target, actionType) {
 
   if (actionType === "BETRAY") {
     growTrust(state, actor, target.id, -20);
-    target.stress = clamp(target.stress + 12, 0, 100);
+    target.stress = clamp(target.stress + 20, 0, 100);
     target.fear = clamp(target.fear + 6, 0, 100);
+    target.jealousy = clamp(target.jealousy + 15, 0, 100);
     if (actor.allianceId && actor.allianceId === target.allianceId) {
       dissolveAlliance(state, actor.allianceId, `${actor.name}의 BETRAY로 동맹 붕괴`);
     }
@@ -463,7 +502,7 @@ function applySocialAction(state, actor, target, actionType) {
   }
 
   if (actionType === "PROTECT") {
-    growTrust(state, actor, target.id, 7);
+    growTrust(state, actor, target.id, trustGain);
     target.stress = clamp(target.stress - 8, 0, 100);
     target.fear = clamp(target.fear - 6, 0, 100);
     log.push(`${actor.name} -> PROTECT -> ${target.name}`);
@@ -501,6 +540,15 @@ function chooseActionType(actor, target) {
     PROTECT: 7 + Math.max(0, trust * 0.06),
   };
 
+  if (actor.jealousy > 60) {
+    base.GOSSIP *= 1.25;
+    base.BETRAY *= 1.2;
+  }
+  if (actor.jealousy > 80) {
+    base.INTIMIDATE *= 1.15;
+    base.BETRAY *= 1.15;
+  }
+
   const weighted = CONFIG.actionTypes.map((type) => ({ type, weight: base[type] + Math.random() * 4 }));
   return weightedPick(weighted).type;
 }
@@ -517,6 +565,7 @@ function autoFormAlliances(state) {
         state.alliances[id] = { id, members: [a.id, b.id], createdDay: state.day };
         a.allianceId = id;
         b.allianceId = id;
+        state.newAlliancesToday.push([a.id, b.id]);
         state.dailyLog.push(`[ALLIANCE] ${a.name} + ${b.name}`);
       }
     }
@@ -542,8 +591,9 @@ function checkBetrayalTrigger(state, actor, target) {
 
 function applyBetrayalEffect(state, actor, target) {
   growTrust(state, actor, target.id, -40);
-  target.stress = clamp(target.stress + 15, 0, 100);
+  target.stress = clamp(target.stress + 20, 0, 100);
   target.fear = clamp(target.fear + 10, 0, 100);
+  target.jealousy = clamp(target.jealousy + 15, 0, 100);
   dissolveAlliance(state, actor.allianceId, `${actor.name}의 배신`);
   state.dailyLog.push(`[BETRAYAL TRIGGER] ${actor.name} -> ${target.name}`);
 }
@@ -593,11 +643,22 @@ function gamePhase(state) {
 
 function rankingUpdate(state) {
   const ranked = state.rankings;
+  const aliveCount = ranked.length;
   ranked.forEach((r, i) => {
     const p = participantById(state, r.id);
     if (i === 0) p.points += 5;
     if (i === 1) p.points += 3;
     if (i === 2) p.points += 2;
+
+    const lowRankThreshold = Math.max(1, aliveCount - 2);
+    if (i + 1 >= lowRankThreshold) {
+      p.lowRankStreak += 1;
+    } else {
+      p.lowRankStreak = 0;
+    }
+    if (p.lowRankStreak >= 2) {
+      p.fear = clamp(p.fear + 10, 0, 100);
+    }
   });
 
   if (ranked[0]) {
@@ -622,6 +683,11 @@ function rankingUpdate(state) {
     for (const other of aliveParticipants(state)) {
       if (other.id === cage.id) continue;
       growTrust(state, cage, other.id, -5);
+      if (other.allianceId && other.allianceId === cage.allianceId) {
+        growTrust(state, other, cage.id, 5);
+      } else {
+        growTrust(state, other, cage.id, -5);
+      }
     }
 
     for (const other of aliveParticipants(state)) {
@@ -716,37 +782,258 @@ function applyHostIntervention(state) {
     a.difficultyOffset = clamp(a.difficultyOffset + 15, 0, 50);
   }
 
+  for (const p of aliveParticipants(state)) {
+    p.fear = clamp(p.fear + 5, 0, 100);
+  }
+  state.hostEventToday = true;
   state.suspicion += 5;
   state.hostActionUsedDay = state.day;
   state.dailyLog.push(`[HOST] ${action.type} executed (suspicion +5)`);
   state.pendingHostAction = null;
 }
 
-function nightPhase(state) {
-  for (const p of aliveParticipants(state)) {
-    p.stress = clamp(p.stress - 5, 0, 100);
-    p.fear = clamp(p.fear - 3, 0, 100);
+function isInRelationship(state, participantId) {
+  return Object.values(state.relationships).some((rel) => rel.aId === participantId || rel.bId === participantId);
+}
 
-    for (const target of aliveParticipants(state)) {
-      if (target.id === p.id) continue;
-      p.attraction[target.id] = clamp((p.attraction[target.id] ?? 0) - 2, 0, 100);
+function strongestAttractionTarget(state, actor) {
+  const others = aliveParticipants(state).filter((p) => p.id !== actor.id);
+  if (!others.length) return null;
+  return others.reduce((best, candidate) => {
+    const score = actor.attraction[candidate.id] ?? 0;
+    if (!best) return { id: candidate.id, score };
+    return score > best.score ? { id: candidate.id, score } : best;
+  }, null);
+}
+
+function updateAttractionDynamics(state) {
+  const people = aliveParticipants(state);
+  for (const a of people) {
+    for (const b of people) {
+      if (a.id === b.id) continue;
+      const delta = b.charisma * 0.05 + (a.trust[b.id] ?? 0) * 0.03 - a.stress * 0.02 + randFloat(-5, 5) - 2;
+      a.attraction[b.id] = clamp((a.attraction[b.id] ?? 0) + delta, 0, 100);
     }
   }
+}
 
-  const caretaker = aliveParticipants(state).find((p) => p.role === "CARETAKER");
-  if (caretaker && caretaker.allianceId) {
-    const alliance = state.alliances[caretaker.allianceId];
-    if (alliance) {
-      for (const memberId of alliance.members) {
-        if (memberId === caretaker.id) continue;
-        const partner = participantById(state, memberId);
-        if (!partner || !partner.alive) continue;
-        partner.stress = clamp(partner.stress - 4, 0, 100);
+function processRelationships(state) {
+  const people = aliveParticipants(state);
+
+  for (let i = 0; i < people.length; i += 1) {
+    for (let j = i + 1; j < people.length; j += 1) {
+      const a = people[i];
+      const b = people[j];
+      const key = pairKey(a.id, b.id);
+      if (state.relationships[key]) continue;
+      if ((a.attraction[b.id] ?? 0) > 70 && (b.attraction[a.id] ?? 0) > 70 && (a.trust[b.id] ?? 0) > 50 && (b.trust[a.id] ?? 0) > 50) {
+        state.relationships[key] = { key, aId: a.id, bId: b.id, sinceDay: state.day };
+        a.trust[b.id] = clamp((a.trust[b.id] ?? 0) + 15, -100, 100);
+        b.trust[a.id] = clamp((b.trust[a.id] ?? 0) + 15, -100, 100);
+        a.loneliness = clamp(a.loneliness - 20, 0, 100);
+        b.loneliness = clamp(b.loneliness - 20, 0, 100);
+        for (const other of people) {
+          if (other.id === a.id || other.id === b.id) continue;
+          other.jealousy = clamp(other.jealousy + 10, 0, 100);
+        }
+        state.dailyRelationshipEvents.push(`[REL FORM] ${a.name} & ${b.name}`);
       }
     }
   }
 
-  state.dailyLog.push("[NIGHT] stress/fear/attraction decay applied");
+  for (const rel of Object.values({ ...state.relationships })) {
+    const a = participantById(state, rel.aId);
+    const b = participantById(state, rel.bId);
+    if (!a || !b || !a.alive || !b.alive) {
+      delete state.relationships[rel.key];
+      continue;
+    }
+    const pointsDiff = Math.abs(a.points - b.points);
+    const unstable = a.jealousy > 70 || b.jealousy > 70 || pointsDiff > 8 || a.stress > 80 || b.stress > 80;
+    if (!unstable) continue;
+
+    a.trust[b.id] = clamp((a.trust[b.id] ?? 0) - 50, -100, 100);
+    b.trust[a.id] = clamp((b.trust[a.id] ?? 0) - 50, -100, 100);
+    a.attraction[b.id] = clamp((a.attraction[b.id] ?? 0) - 30, 0, 100);
+    b.attraction[a.id] = clamp((b.attraction[a.id] ?? 0) - 30, 0, 100);
+    a.jealousy = clamp(a.jealousy + 20, 0, 100);
+    b.jealousy = clamp(b.jealousy + 20, 0, 100);
+    delete state.relationships[rel.key];
+    state.dailyRelationshipEvents.push(`[REL BREAK] ${a.name} x ${b.name}`);
+  }
+}
+
+function updateLonelinessSystem(state) {
+  for (const p of aliveParticipants(state)) {
+    const hasAlliance = !!(p.allianceId && state.alliances[p.allianceId]);
+    const hasRelationship = isInRelationship(state, p.id);
+    const hasMutualAttraction = aliveParticipants(state).some(
+      (other) => other.id !== p.id && (p.attraction[other.id] ?? 0) > 70 && (other.attraction[p.id] ?? 0) > 70
+    );
+    if (!hasAlliance && !hasMutualAttraction) {
+      p.loneliness = clamp(p.loneliness + 5, 0, 100);
+    }
+    if (hasRelationship) {
+      p.loneliness = clamp(p.loneliness - 10, 0, 100);
+    }
+    if (p.loneliness > 70) {
+      const target = aliveParticipants(state)
+        .filter((t) => t.id !== p.id)
+        .sort((a, b) => b.charisma - a.charisma)[0];
+      if (target) {
+        p.attraction[target.id] = clamp((p.attraction[target.id] ?? 0) + 15, 0, 100);
+      }
+    }
+  }
+}
+
+function updateJealousySystem(state) {
+  const alive = aliveParticipants(state);
+  for (const a of alive) {
+    const targetInfo = strongestAttractionTarget(state, a);
+    if (!targetInfo) continue;
+    const b = participantById(state, targetInfo.id);
+    if (!b) continue;
+
+    let jealousyDelta = Math.max(0, (a.attraction[b.id] ?? 0) - (b.attraction[a.id] ?? 0)) * 0.3;
+    const bNewAlliance = state.newAlliancesToday.some((pair) => pair.includes(b.id) && !pair.includes(a.id));
+    if (bNewAlliance) jealousyDelta += 10;
+    const lowRank = (a.latestRank ?? 99) >= Math.max(4, alive.length - 1);
+    if (state.rankings[0] && state.rankings[0].id === b.id && lowRank) jealousyDelta += 5;
+
+    a.jealousy = clamp(a.jealousy + jealousyDelta - 3, 0, 100);
+
+    if (a.jealousy > 60) {
+      a.trust[b.id] = clamp((a.trust[b.id] ?? 0) - 10, -100, 100);
+    }
+    if (a.jealousy > 80) {
+      a.stress = clamp(a.stress + 10, 0, 100);
+      a.violentEventBonus = clamp(a.violentEventBonus + 0.15, 0, 1);
+    }
+  }
+}
+
+function applyLoveTriangleEffects(state) {
+  state.triangleDetected = null;
+  const people = aliveParticipants(state);
+  for (const b of people) {
+    for (const a of people) {
+      if (a.id === b.id) continue;
+      const mutualHigh = (a.attraction[b.id] ?? 0) > 70 && (b.attraction[a.id] ?? 0) > 70;
+      if (!mutualHigh) continue;
+      for (const c of people) {
+        if (c.id === a.id || c.id === b.id) continue;
+        if ((c.attraction[b.id] ?? 0) <= 60) continue;
+        c.jealousy = clamp(c.jealousy + 20, 0, 100);
+        c.violentEventBonus = clamp(c.violentEventBonus + 0.15, 0, 1);
+        state.triangleDetected = [a.id, b.id, c.id];
+        state.dailyRelationshipEvents.push(`[TRIANGLE] ${a.name}-${b.name}<-${c.name}`);
+        return;
+      }
+    }
+  }
+}
+
+function applyStressFearModel(state) {
+  const firstId = state.rankings[0]?.id ?? null;
+  for (const p of aliveParticipants(state)) {
+    const allianceSupport = p.allianceId && state.alliances[p.allianceId] ? 10 : 0;
+    const firstPlaceBonus = p.id === firstId ? 20 : 0;
+    p.stress = clamp(p.stress + p.fear * 0.3 + p.jealousy * 0.2 - allianceSupport - firstPlaceBonus, 0, 100);
+    p.stress = clamp(p.stress - 5, 0, 100);
+    p.fear = clamp(p.fear - 3, 0, 100);
+    p.stability = clamp(100 - p.stress, 0, 100);
+  }
+}
+
+function applyCaretakerSupport(state) {
+  const caretaker = aliveParticipants(state).find((p) => p.role === "CARETAKER");
+  if (!caretaker || !caretaker.allianceId) return;
+  const alliance = state.alliances[caretaker.allianceId];
+  if (!alliance) return;
+  for (const memberId of alliance.members) {
+    if (memberId === caretaker.id) continue;
+    const partner = participantById(state, memberId);
+    if (!partner || !partner.alive) continue;
+    partner.stress = clamp(partner.stress - 4, 0, 100);
+    partner.stability = clamp(100 - partner.stress, 0, 100);
+  }
+}
+
+function triggerEmotionalCascade(state) {
+  state.confrontationEventsToday = [];
+  const people = aliveParticipants(state);
+  for (const actor of people) {
+    const worst = people
+      .filter((p) => p.id !== actor.id)
+      .map((target) => ({ target, trust: actor.trust[target.id] ?? 0 }))
+      .sort((a, b) => a.trust - b.trust)[0];
+    if (!worst) continue;
+    if (!(actor.stress > 85 && actor.jealousy > 70 && worst.trust < -50)) continue;
+
+    const roll = Math.random();
+    if (roll < 0.45) {
+      actor.stress = clamp(actor.stress + 8, 0, 100);
+      worst.target.stress = clamp(worst.target.stress + 8, 0, 100);
+      actor.trust[worst.target.id] = clamp((actor.trust[worst.target.id] ?? 0) - 20, -100, 100);
+      worst.target.trust[actor.id] = clamp((worst.target.trust[actor.id] ?? 0) - 20, -100, 100);
+      state.confrontationEventsToday.push(`public_fight:${actor.id}:${worst.target.id}`);
+      state.dailyLog.push(`[CONFRONTATION] PUBLIC FIGHT ${actor.name} vs ${worst.target.name}`);
+    } else if (roll < 0.75) {
+      actor.violentEventBonus = clamp(actor.violentEventBonus + 0.2, 0, 1);
+      for (const other of people) {
+        if (other.id === actor.id) continue;
+        other.fear = clamp(other.fear + 8, 0, 100);
+      }
+      state.confrontationEventsToday.push(`violent_incident:${actor.id}:${worst.target.id}`);
+      state.dailyLog.push(`[CONFRONTATION] VIOLENT INCIDENT RISK ${actor.name}`);
+    } else {
+      actor.loneliness = clamp(actor.loneliness + 12, 0, 100);
+      actor.stress = clamp(actor.stress - 6, 0, 100);
+      state.confrontationEventsToday.push(`self_isolation:${actor.id}`);
+      state.dailyLog.push(`[CONFRONTATION] SELF-ISOLATION ${actor.name}`);
+    }
+  }
+}
+
+function countRivalries(state) {
+  const people = aliveParticipants(state);
+  let count = 0;
+  for (let i = 0; i < people.length; i += 1) {
+    for (let j = i + 1; j < people.length; j += 1) {
+      const a = people[i];
+      const b = people[j];
+      if ((a.trust[b.id] ?? 0) < -50 || (b.trust[a.id] ?? 0) < -50) count += 1;
+    }
+  }
+  return count;
+}
+
+function computeDramaScore(state) {
+  const people = aliveParticipants(state);
+  if (!people.length) {
+    state.dramaScore = 0;
+    return;
+  }
+  const avgJealousy = people.reduce((sum, p) => sum + p.jealousy, 0) / people.length;
+  const avgStress = people.reduce((sum, p) => sum + p.stress, 0) / people.length;
+  const activeRelationships = Object.keys(state.relationships).length;
+  const rivalries = countRivalries(state);
+  const recentDeaths = state.latestDeath ? 1 : 0;
+  state.dramaScore = Math.round(avgJealousy * 0.3 + avgStress * 0.3 + activeRelationships * 10 + rivalries * 15 + recentDeaths * 25);
+}
+
+function nightPhase(state) {
+  updateAttractionDynamics(state);
+  processRelationships(state);
+  updateLonelinessSystem(state);
+  updateJealousySystem(state);
+  applyLoveTriangleEffects(state);
+  applyStressFearModel(state);
+  applyCaretakerSupport(state);
+  triggerEmotionalCascade(state);
+  computeDramaScore(state);
+  state.dailyLog.push("[NIGHT] emotion/relation engine resolved");
 }
 
 function cleanMatricesAfterDeath(state, deadId) {
@@ -767,6 +1054,10 @@ function killParticipant(state, p, reason) {
   state.latestDeath = { id: p.id, name: p.name, reason, day: state.day };
   state.deaths.push(state.latestDeath);
   state.dailyLog.push(`[DEATH] ${p.name} | ${reason}`);
+  for (const other of aliveParticipants(state)) {
+    if (other.id === p.id) continue;
+    other.fear = clamp(other.fear + 15, 0, 100);
+  }
 
   for (const [allianceId, alliance] of Object.entries(state.alliances)) {
     if (alliance.members.includes(p.id)) {
@@ -793,8 +1084,11 @@ function deathCheck(state) {
   for (const a of people) {
     const violentTarget = people.find((b) => b.id !== a.id && (a.trust[b.id] ?? 0) < -70);
     if (violentTarget && a.stress > 80) {
-      killParticipant(state, a, `Violent Incident linked to ${violentTarget.name}`);
-      return;
+      const violentChance = clamp(0.35 + (a.violentEventBonus ?? 0), 0, 0.95);
+      if (Math.random() < violentChance) {
+        killParticipant(state, a, `Violent Incident linked to ${violentTarget.name}`);
+        return;
+      }
     }
   }
 
@@ -816,9 +1110,11 @@ function applyRunawayLeaderBalance(state) {
 }
 
 function relationEventText(state) {
-  const allianceLine = state.dailyLog.find((line) => line.includes("[ALLIANCE]"));
+  const relEvent = state.dailyRelationshipEvents[0];
+  if (relEvent) return relEvent.replace(/^\[(REL FORM|REL BREAK|TRIANGLE)\]\s*/, "");
   const betrayalLine = state.dailyLog.find((line) => line.includes("[BETRAYAL TRIGGER]"));
   if (betrayalLine) return betrayalLine.replace("[BETRAYAL TRIGGER] ", "");
+  const allianceLine = state.dailyLog.find((line) => line.includes("[ALLIANCE]"));
   if (allianceLine) return allianceLine.replace("[ALLIANCE] ", "");
   return "관계는 냉각과 접근을 반복했지만 고정되지 않았다.";
 }
@@ -833,22 +1129,25 @@ function rankingEventText(state) {
 }
 
 function majorEventText(state) {
+  const intensity =
+    state.dramaScore >= 80 ? "EXTREME" : state.dramaScore >= 60 ? "HIGH" : state.dramaScore >= 40 ? "MEDIUM" : "LOW";
   const death = state.latestDeath;
-  if (death) return `${death.name}의 이탈이 섬의 균형을 재정의했다.`;
+  if (death) return `[${intensity}] ${death.name}의 이탈이 섬의 균형을 재정의했다.`;
   const hostLine = state.dailyLog.find((line) => line.includes("[HOST]") && line.includes("executed"));
-  if (hostLine) return `제작진 개입 흔적이 통계에 미세한 왜곡을 남겼다.`;
+  if (hostLine) return `[${intensity}] 제작진 개입 흔적이 통계에 미세한 왜곡을 남겼다.`;
   const cage = state.cageVictimId ? participantById(state, state.cageVictimId) : null;
-  if (cage) return `${cage.name}의 공포 지표가 급상승했다.`;
-  return "오늘은 조용해 보였지만 지표는 더 어두운 방향으로 이동했다.";
+  if (cage) return `[${intensity}] ${cage.name}의 공포 지표가 급상승했다.`;
+  return `[${intensity}] 오늘은 조용해 보였지만 지표는 더 어두운 방향으로 이동했다.`;
 }
 
 function generateStory(state) {
   const p1 = `Day ${state.day}. ${majorEventText(state)}`;
   const p2 = `관계 레이어: ${relationEventText(state)}`;
-  const p3 = `랭킹 레이어: ${rankingEventText(state)}`;
+  const p3 = `랭킹 레이어: ${rankingEventText(state)} | Drama Score ${state.dramaScore}`;
+  const p4 = state.latestDeath ? `DEATH 레이어: ${state.latestDeath.name} / ${state.latestDeath.reason}` : null;
 
   const lines = [p1, p2, p3];
-  if (!state.latestDeath) lines.pop();
+  if (p4) lines.push(p4);
 
   state.dailyBroadcast = lines.join("\n\n");
 }
@@ -891,7 +1190,12 @@ function resetDailyFlags(state) {
     p.previousNightCage = p.wasNightCageToday;
     p.wasNightCageToday = false;
     p.difficultyOffset = Math.max(0, p.difficultyOffset - 5);
+    p.violentEventBonus = 0;
   }
+  state.newAlliancesToday = [];
+  state.dailyRelationshipEvents = [];
+  state.confrontationEventsToday = [];
+  state.hostEventToday = false;
 }
 
 function nextDay(state) {
@@ -899,6 +1203,7 @@ function nextDay(state) {
 
   state.dailyLog = [];
   state.cageVictimId = null;
+  state.triangleDetected = null;
 
   socialPhase(state);
   gamePhase(state);
@@ -907,6 +1212,7 @@ function nextDay(state) {
   applyHostIntervention(state);
   nightPhase(state);
   deathCheck(state);
+  computeDramaScore(state);
   applyRunawayLeaderBalance(state);
   generateStory(state);
   checkSeasonEnd(state);
@@ -960,7 +1266,7 @@ function renderTopBar(state) {
   const alive = aliveParticipants(state).length;
   const winner = state.winnerId ? participantById(state, state.winnerId) : null;
   const status = state.gameOver ? `SEASON END | WINNER: ${winner ? winner.name : "N/A"}` : "SEASON RUNNING";
-  document.getElementById("season-meta").textContent = `Day ${state.day}/20 | Alive ${alive}/8 | Suspicion ${state.suspicion} | ${status}`;
+  document.getElementById("season-meta").textContent = `Day ${state.day}/20 | Alive ${alive}/8 | Suspicion ${state.suspicion} | Drama ${state.dramaScore} | ${status}`;
 }
 
 function renderPriority(state) {
@@ -993,7 +1299,9 @@ function renderPriority(state) {
     });
   }
 
-  const triangle = detectAttractionTriangle(state);
+  const triangle = state.triangleDetected
+    ? state.triangleDetected.map((id) => participantById(state, id))
+    : detectAttractionTriangle(state);
   const triangleView = document.getElementById("triangle-view");
   triangleView.textContent = triangle
     ? `${triangle[0].name} -> ${triangle[1].name} -> ${triangle[2].name} -> ${triangle[0].name}`
@@ -1052,6 +1360,9 @@ function renderParticipants(state) {
       <div class="row-split"><span>Points ${p.points}</span><span>Rank ${p.latestRank ?? "-"}</span></div>
       <div class="row-split"><span>Stress ${toPercent(p.stress)}</span>${statTag(p.stress, 65, 85)}</div>
       <div class="row-split"><span>Fear ${toPercent(p.fear)}</span>${statTag(p.fear, 55, 80)}</div>
+      <div class="row-split"><span>Jealousy ${toPercent(p.jealousy)}</span>${statTag(p.jealousy, 60, 80)}</div>
+      <div class="row-split"><span>Loneliness ${toPercent(p.loneliness)}</span>${statTag(p.loneliness, 55, 75)}</div>
+      <div class="row-split"><span>Stability ${toPercent(p.stability)}</span>${statTag(100 - p.stability, 50, 75)}</div>
       <div class="row-split"><span>Ambition ${toPercent(p.ambition)}</span><span>${alliance}</span></div>
     `;
 
@@ -1103,7 +1414,7 @@ function bindEvents(stateRef) {
 
 function bootstrap() {
   const loaded = loadState();
-  const stateRef = { state: loaded || initState() };
+  const stateRef = { state: hydrateState(loaded || initState()) };
   bindEvents(stateRef);
   const action = document.getElementById("host-action").value;
   document.getElementById("host-target-b").disabled = !HOST_ACTIONS[action].needB;
