@@ -1178,6 +1178,7 @@ function setupDebugButtons(stateRef) {
   const status = document.getElementById("debug-status");
 
   document.getElementById("debug-fight").addEventListener("click", () => {
+    if (!stateRef.state) return;
     const rel = getRelation(stateRef.state, "npc_minseok", "npc_sea");
     const minseok = getNpc(stateRef.state, "npc_minseok");
     minseok.emotions.anger = 95;
@@ -1188,6 +1189,7 @@ function setupDebugButtons(stateRef) {
   });
 
   document.getElementById("debug-rumor").addEventListener("click", () => {
+    if (!stateRef.state) return;
     stateRef.state.rumors.push({
       id: `debug_r_${Date.now()}`,
       topicNpcId: "npc_doyun",
@@ -1202,18 +1204,71 @@ function setupDebugButtons(stateRef) {
   });
 }
 
-function bootstrap() {
-  let state = load();
-  if (!state) {
-    const seed = Date.now() % 1000000000;
-    state = initGame(seed);
-    buildNewspaper(state, mulberry32(seed));
-    save(state);
+function showScreen(name) {
+  const start = document.getElementById("start-screen");
+  const game = document.getElementById("game-screen");
+  if (name === "game") {
+    start.classList.add("hidden");
+    game.classList.remove("hidden");
+  } else {
+    game.classList.add("hidden");
+    start.classList.remove("hidden");
   }
+}
 
-  const stateRef = { state };
+function openGame(stateRef, state) {
+  stateRef.state = state;
+  document.getElementById("seed-input").value = String(state.seed);
+  render(stateRef.state);
+  showScreen("game");
+}
+
+function bootstrap() {
+  const stateRef = { state: null };
+  const startSeedInput = document.getElementById("start-seed-input");
+  const startStatus = document.getElementById("start-status");
   const seedInput = document.getElementById("seed-input");
-  seedInput.value = String(state.seed);
+
+  const saved = load();
+  startSeedInput.value = String(saved ? saved.seed : Date.now() % 1000000000);
+  startStatus.textContent = saved
+    ? `저장 데이터 감지: Day ${saved.day}, Seed ${saved.seed}`
+    : "저장 데이터가 없습니다. 새 게임을 시작하세요.";
+
+  document.getElementById("start-seed-random").addEventListener("click", () => {
+    startSeedInput.value = String(Math.floor(Math.random() * 1000000000));
+  });
+
+  document.getElementById("start-new-game").addEventListener("click", () => {
+    const seed = Number(startSeedInput.value);
+    if (!Number.isFinite(seed)) {
+      startStatus.textContent = "유효한 Seed를 입력해주세요.";
+      return;
+    }
+    const state = initGame(Math.floor(seed));
+    buildNewspaper(state, mulberry32(state.seed));
+    save(state);
+    openGame(stateRef, state);
+    startStatus.textContent = `새 게임 시작: Seed ${state.seed}`;
+  });
+
+  document.getElementById("start-load-game").addEventListener("click", () => {
+    const loaded = load();
+    if (!loaded) {
+      startStatus.textContent = "불러올 저장 데이터가 없습니다.";
+      return;
+    }
+    openGame(stateRef, loaded);
+    startStatus.textContent = `저장 데이터 불러옴: Day ${loaded.day}`;
+  });
+
+  document.getElementById("back-to-start").addEventListener("click", () => {
+    const latest = load();
+    startStatus.textContent = latest
+      ? `현재 저장: Day ${latest.day}, Seed ${latest.seed}`
+      : "저장 데이터가 없습니다.";
+    showScreen("start");
+  });
 
   document.getElementById("seed-apply").addEventListener("click", () => {
     const seed = Number(seedInput.value);
@@ -1234,12 +1289,14 @@ function bootstrap() {
   });
 
   document.getElementById("next-day").addEventListener("click", () => {
+    if (!stateRef.state) return;
     nextDay(stateRef.state);
     save(stateRef.state);
     render(stateRef.state);
   });
 
   document.getElementById("save-btn").addEventListener("click", () => {
+    if (!stateRef.state) return;
     save(stateRef.state);
     document.getElementById("debug-status").textContent = "저장 완료";
   });
@@ -1263,7 +1320,7 @@ function bootstrap() {
   });
 
   setupDebugButtons(stateRef);
-  render(stateRef.state);
+  showScreen("start");
 }
 
 bootstrap();
