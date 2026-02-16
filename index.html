@@ -81,6 +81,17 @@
           <button id="queue-host-btn">개입 실행</button>
         </div>
         <p id="host-queue-view" class="meta-line"></p>
+
+        <h2>야간 방 배정 스왑 (1쌍 교체)</h2>
+        <div class="room-controls">
+          <label>스왑 대상 A
+            <select id="room-swap-a"></select>
+          </label>
+          <label>스왑 대상 B
+            <select id="room-swap-b"></select>
+          </label>
+          <button id="apply-room-swap-btn">스왑 예약</button>
+        </div>
       </section>
 
       <section class="layout">
@@ -106,6 +117,11 @@
           <section>
             <h3>4. 삼각관계</h3>
             <div id="triangle-view" class="highlight-box"></div>
+          </section>
+
+          <section>
+            <h3>5. 오늘 방 배정</h3>
+            <div id="room-assignments" class="highlight-box"></div>
           </section>
         </aside>
 

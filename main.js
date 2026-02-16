@@ -149,15 +149,15 @@ const ARCHETYPES = [
   {
     id: "p1",
     role: "STRATEGIST",
-    name: "기현",
+    name: "JAEWOO",
     gender: "M",
     age: 34,
-    appearance: 65,
-    ambition: 90,
+    appearance: 68,
+    ambition: 92,
     stress: 30,
     fear: 20,
-    charisma: 72,
-    jealousy: 28,
+    charisma: 74,
+    desire: 45,
     trustBaseline: -2,
     traits: {
       empathy: 0.2,
@@ -173,15 +173,15 @@ const ARCHETYPES = [
   {
     id: "p2",
     role: "CHARMER",
-    name: "리아",
+    name: "MINA",
     gender: "F",
     age: 26,
-    appearance: 88,
-    ambition: 65,
+    appearance: 90,
+    ambition: 70,
     stress: 25,
     fear: 20,
-    charisma: 95,
-    jealousy: 32,
+    charisma: 96,
+    desire: 65,
     trustBaseline: 6,
     traits: {
       empathy: 0.55,
@@ -197,15 +197,15 @@ const ARCHETYPES = [
   {
     id: "p3",
     role: "REBEL",
-    name: "태건",
+    name: "DOHYUN",
     gender: "M",
     age: 24,
-    appearance: 75,
-    ambition: 70,
+    appearance: 78,
+    ambition: 75,
     stress: 45,
     fear: 35,
-    charisma: 70,
-    jealousy: 36,
+    charisma: 73,
+    desire: 70,
     trustBaseline: -4,
     traits: {
       empathy: 0.35,
@@ -221,15 +221,15 @@ const ARCHETYPES = [
   {
     id: "p4",
     role: "ICE_QUEEN",
-    name: "세린",
+    name: "YURA",
     gender: "F",
     age: 29,
-    appearance: 82,
-    ambition: 75,
+    appearance: 84,
+    ambition: 78,
     stress: 20,
     fear: 15,
-    charisma: 78,
-    jealousy: 22,
+    charisma: 80,
+    desire: 40,
     trustBaseline: -15,
     traits: {
       empathy: 0.3,
@@ -245,15 +245,15 @@ const ARCHETYPES = [
   {
     id: "p5",
     role: "UNSTABLE",
-    name: "우진",
+    name: "SEJIN",
     gender: "M",
     age: 22,
     appearance: 55,
     ambition: 50,
-    stress: 55,
-    fear: 40,
+    stress: 60,
+    fear: 45,
     charisma: 52,
-    jealousy: 34,
+    desire: 55,
     trustBaseline: -6,
     traits: {
       empathy: 0.4,
@@ -269,15 +269,15 @@ const ARCHETYPES = [
   {
     id: "p6",
     role: "CARETAKER",
-    name: "다인",
+    name: "HAEIN",
     gender: "F",
     age: 31,
-    appearance: 60,
+    appearance: 62,
     ambition: 40,
     stress: 30,
     fear: 25,
-    charisma: 58,
-    jealousy: 15,
+    charisma: 60,
+    desire: 50,
     trustBaseline: 10,
     traits: {
       empathy: 0.8,
@@ -293,15 +293,15 @@ const ARCHETYPES = [
   {
     id: "p7",
     role: "OPPORTUNIST",
-    name: "노아",
+    name: "RIO",
     gender: "X",
     age: 27,
-    appearance: 72,
-    ambition: 85,
+    appearance: 74,
+    ambition: 88,
     stress: 35,
     fear: 25,
-    charisma: 74,
-    jealousy: 38,
+    charisma: 76,
+    desire: 60,
     trustBaseline: -3,
     traits: {
       empathy: 0.3,
@@ -317,15 +317,15 @@ const ARCHETYPES = [
   {
     id: "p8",
     role: "SHADOW",
-    name: "시우",
+    name: "HYUNSU",
     gender: "M",
     age: 38,
-    appearance: 50,
+    appearance: 52,
     ambition: 60,
     stress: 20,
     fear: 10,
-    charisma: 54,
-    jealousy: 18,
+    charisma: 56,
+    desire: 35,
     trustBaseline: -8,
     traits: {
       empathy: 0.45,
@@ -390,6 +390,10 @@ function participantById(state, id) {
   return state.participants.find((p) => p.id === id);
 }
 
+function participantByName(state, name) {
+  return state.participants.find((p) => p.name === name);
+}
+
 function aliveParticipants(state) {
   return state.participants.filter((p) => p.alive);
 }
@@ -418,7 +422,7 @@ function createParticipantFromArchetype(archetype) {
     charisma: archetype.charisma,
     jealousy: randInt(10, 40),
     loneliness: 30,
-    desire: randInt(30, 70),
+    desire: archetype.desire ?? randInt(30, 70),
     stability: clamp(100 - archetype.stress, 0, 100),
     suspicion: randInt(0, 10),
     paranoia: 0,
@@ -438,6 +442,7 @@ function createParticipantFromArchetype(archetype) {
     violentEventBonus: 0,
     nextGameModifier: 0,
     riggedLastDay: null,
+    roomIntimacyBias: 0,
   };
 }
 
@@ -476,13 +481,6 @@ function applyInitialRelationSeeds(participants) {
   const unstable = byRole.UNSTABLE;
   const caretaker = byRole.CARETAKER;
 
-  if (charmer) {
-    for (const p of participants) {
-      if (p.id === charmer.id) continue;
-      p.attraction[charmer.id] = clamp((p.attraction[charmer.id] ?? 0) + 20, 0, 100);
-    }
-  }
-
   if (charmer && rebel) {
     charmer.attraction[rebel.id] = 80;
     rebel.attraction[charmer.id] = 80;
@@ -490,13 +488,17 @@ function applyInitialRelationSeeds(participants) {
   if (strategist && iceQueen) {
     strategist.attraction[iceQueen.id] = 65;
   }
-
-  if (strategist && rebel) {
-    strategist.trust[rebel.id] = -60;
-    rebel.trust[strategist.id] = -60;
+  if (unstable && charmer) {
+    unstable.attraction[charmer.id] = 60;
   }
-  if (iceQueen && charmer) {
-    iceQueen.trust[charmer.id] = -40;
+
+  if (strategist && charmer) {
+    strategist.trust[charmer.id] = -60;
+    charmer.trust[strategist.id] = -60;
+  }
+  if (rebel && strategist) {
+    rebel.trust[strategist.id] = -55;
+    strategist.trust[rebel.id] = Math.min(strategist.trust[rebel.id] ?? -55, -55);
   }
 
   if (caretaker && unstable) {
@@ -549,6 +551,8 @@ function initState() {
       lastUsedTemplate: {},
     },
     pendingHostAction: null,
+    pendingRoomSwap: null,
+    roomAssignments: null,
     gameOver: false,
     winnerId: null,
   };
@@ -605,6 +609,8 @@ function hydrateState(state) {
   if (typeof state.dramaScore !== "number") state.dramaScore = 0;
   if (!("triangleDetected" in state)) state.triangleDetected = null;
   if (!("hostEventToday" in state)) state.hostEventToday = false;
+  if (!("pendingRoomSwap" in state)) state.pendingRoomSwap = null;
+  if (!("roomAssignments" in state)) state.roomAssignments = null;
 
   for (const p of state.participants) {
     if (typeof p.jealousy !== "number") p.jealousy = randInt(10, 40);
@@ -615,6 +621,7 @@ function hydrateState(state) {
     if (typeof p.violentEventBonus !== "number") p.violentEventBonus = 0;
     if (typeof p.nextGameModifier !== "number") p.nextGameModifier = 0;
     if (!("riggedLastDay" in p)) p.riggedLastDay = null;
+    if (typeof p.roomIntimacyBias !== "number") p.roomIntimacyBias = 0;
     if (typeof p.suspicion !== "number") p.suspicion = randInt(0, 10);
     if (typeof p.publicImage !== "number") p.publicImage = clamp(50 + p.charisma * 0.2 + randInt(-10, 10), 0, 100);
     if (typeof p.instabilityScore !== "number") p.instabilityScore = 0;
@@ -850,7 +857,7 @@ function chooseTarget(actor, targets) {
   return weightedPick(scored).target;
 }
 
-function chooseActionType(actor, target) {
+function chooseActionType(state, actor, target) {
   const trust = actor.trust[target.id] ?? 0;
   const attraction = actor.attraction[target.id] ?? 0;
   const betrayalBias = actor.traits?.betrayalBias ?? 0.3;
@@ -866,8 +873,23 @@ function chooseActionType(actor, target) {
     BETRAY: (actor.ambition > 70 ? 10 : 3) + betrayalBias * 11 + (1 - empathy) * 5,
     INTIMIDATE: 5 + actor.stress * 0.07 + (1 - empathy) * 3,
     PROTECT: 7 + Math.max(0, trust * 0.06),
-    INTIMATE_EXCHANGE: canIntimateExchange(actor, target) ? 8 + actor.desire * 0.12 + actor.ambition * 0.05 : 1,
+    INTIMATE_EXCHANGE:
+      state.day >= 3 && canIntimateExchange(actor, target) ? 8 + actor.desire * 0.12 + actor.ambition * 0.05 : 0.01,
   };
+
+  const jaewoo = participantByName(state, "JAEWOO");
+  const dohyun = participantByName(state, "DOHYUN");
+  const isJaewooDohyunPair =
+    state.day === 1 &&
+    jaewoo &&
+    dohyun &&
+    ((actor.id === jaewoo.id && target.id === dohyun.id) || (actor.id === dohyun.id && target.id === jaewoo.id));
+  if (isJaewooDohyunPair) {
+    base.GOSSIP *= 1.25;
+    base.BETRAY *= 1.35;
+    base.INTIMIDATE *= 1.3;
+    base.TALK *= 0.75;
+  }
 
   if (actor.jealousy > 60) {
     base.GOSSIP *= 1.25;
@@ -935,7 +957,7 @@ function socialPhase(state) {
       const targets = livingTargets(state, actor.id);
       if (!targets.length) continue;
       const target = chooseTarget(actor, targets);
-      const actionType = chooseActionType(actor, target);
+      const actionType = chooseActionType(state, actor, target);
       const logs = applySocialAction(state, actor, target, actionType);
       logs.forEach((line) => state.dailyLog.push(`[사회] ${line}`));
 
@@ -948,19 +970,207 @@ function socialPhase(state) {
   autoFormAlliances(state);
 }
 
+function dayBiasRng(state, key) {
+  const seed = hashString(`${state.seasonSeed}:${state.day}:${key}`);
+  return createDeterministicRng(seed);
+}
+
+function createNightRoomAssignments(state) {
+  const alive = aliveParticipants(state);
+  const firstId = state.rankings[0]?.id ?? null;
+  const lastId = state.rankings[state.rankings.length - 1]?.id ?? null;
+  const pool = alive.filter((p) => p.id !== firstId && p.id !== lastId);
+
+  const rng = dayBiasRng(state, "room_shuffle");
+  const shuffled = [...pool].sort((a, b) => {
+    const ra = rng();
+    const rb = rng();
+    if (ra === rb) return a.id.localeCompare(b.id);
+    return ra - rb;
+  });
+
+  const mina = participantByName(state, "MINA");
+  const dohyun = participantByName(state, "DOHYUN");
+  if ((state.day === 1 || state.day === 3) && mina && dohyun) {
+    const inPool = shuffled.some((p) => p.id === mina.id) && shuffled.some((p) => p.id === dohyun.id);
+    if (inPool && rng() < 0.75) {
+      const filtered = shuffled.filter((p) => p.id !== mina.id && p.id !== dohyun.id);
+      filtered.unshift(mina, dohyun);
+      shuffled.splice(0, shuffled.length, ...filtered);
+    }
+  }
+
+  const sharedPairs = [];
+  for (let i = 0; i < shuffled.length; i += 2) {
+    if (shuffled[i + 1]) sharedPairs.push([shuffled[i].id, shuffled[i + 1].id]);
+  }
+
+  return {
+    day: state.day,
+    firstId,
+    cageId: lastId,
+    sharedPairs,
+    swapApplied: false,
+    swapDetail: null,
+  };
+}
+
+function applyRoomSwapIfQueued(state, rooms) {
+  const queued = state.pendingRoomSwap;
+  if (!queued || queued.day !== state.day) return;
+
+  const { aId, bId } = queued;
+  let pairA = -1;
+  let pairB = -1;
+  let idxA = -1;
+  let idxB = -1;
+
+  for (let i = 0; i < rooms.sharedPairs.length; i += 1) {
+    const pair = rooms.sharedPairs[i];
+    const aPos = pair.indexOf(aId);
+    const bPos = pair.indexOf(bId);
+    if (aPos >= 0) {
+      pairA = i;
+      idxA = aPos;
+    }
+    if (bPos >= 0) {
+      pairB = i;
+      idxB = bPos;
+    }
+  }
+
+  if (pairA < 0 || pairB < 0 || pairA === pairB) return;
+  const tmp = rooms.sharedPairs[pairA][idxA];
+  rooms.sharedPairs[pairA][idxA] = rooms.sharedPairs[pairB][idxB];
+  rooms.sharedPairs[pairB][idxB] = tmp;
+  rooms.swapApplied = true;
+  rooms.swapDetail = { aId, bId };
+}
+
+function isTriangleAroundPair(state, aId, bId) {
+  for (const other of aliveParticipants(state)) {
+    if (other.id === aId || other.id === bId) continue;
+    const toA = other.attraction[aId] ?? 0;
+    const toB = other.attraction[bId] ?? 0;
+    if (toA > 60 || toB > 60) return other;
+  }
+  return null;
+}
+
+function evaluateRoomIntimacy(state, a, b, pairHasAttractionBoost) {
+  const actorFirst = a.desire >= b.desire ? [a, b] : [b, a];
+  const initiator = actorFirst[0];
+  const target = actorFirst[1];
+  if (!canIntimateExchange(initiator, target)) return false;
+  if (state.day < 3) return false;
+
+  const trustAvg = ((a.trust[b.id] ?? 0) + (b.trust[a.id] ?? 0)) / 2;
+  const desireAvg = (a.desire + b.desire) / 2;
+  let p = 0.05 + initiator.roomIntimacyBias + target.roomIntimacyBias + desireAvg / 400 + trustAvg / 500;
+  if (pairHasAttractionBoost) p += 0.15;
+  p = clamp(p, 0, 0.85);
+
+  if (Math.random() < p) {
+    applyIntimateExchange(state, initiator, target);
+    initiator.desire = clamp(initiator.desire - 12, 0, 100);
+    target.desire = clamp(target.desire - 8, 0, 100);
+    state.dailyLog.push(`[숙소] ${a.name}-${b.name} 친밀 이벤트 발생`);
+    return true;
+  }
+  return false;
+}
+
+function applyRoomEffects(state, rooms) {
+  for (const p of aliveParticipants(state)) {
+    p.roomIntimacyBias = 0;
+  }
+
+  const sejin = participantByName(state, "SEJIN");
+  const mina = participantByName(state, "MINA");
+  let pairedSejinMina = false;
+
+  for (const [aId, bId] of rooms.sharedPairs) {
+    const a = participantById(state, aId);
+    const b = participantById(state, bId);
+    if (!a || !b || !a.alive || !b.alive) continue;
+
+    if ((sejin && mina) && ((a.id === sejin.id && b.id === mina.id) || (a.id === mina.id && b.id === sejin.id))) {
+      pairedSejinMina = true;
+    }
+
+    growTrust(state, a, b.id, 5);
+    growTrust(state, b, a.id, 5);
+    growAttraction(a, b.id, 3);
+    growAttraction(b, a.id, 3);
+    a.loneliness = clamp(a.loneliness - 5, 0, 100);
+    b.loneliness = clamp(b.loneliness - 5, 0, 100);
+
+    const lowTrust = (a.trust[b.id] ?? 0) < -40 || (b.trust[a.id] ?? 0) < -40;
+    if (lowTrust) {
+      a.stress = clamp(a.stress + 10, 0, 100);
+      b.stress = clamp(b.stress + 10, 0, 100);
+      a.violentEventBonus = clamp(a.violentEventBonus + 0.2, 0, 1);
+      b.violentEventBonus = clamp(b.violentEventBonus + 0.2, 0, 1);
+      state.dailyLog.push(`[숙소] ${a.name}-${b.name} 긴장 상승`);
+    }
+
+    const highAttraction = (a.attraction[b.id] ?? 0) > 60 || (b.attraction[a.id] ?? 0) > 60;
+    if (highAttraction) {
+      a.desire = clamp(a.desire + 10, 0, 100);
+      b.desire = clamp(b.desire + 10, 0, 100);
+      a.roomIntimacyBias = clamp(a.roomIntimacyBias + 0.25, 0, 1);
+      b.roomIntimacyBias = clamp(b.roomIntimacyBias + 0.25, 0, 1);
+      state.audienceInterest = clamp(state.audienceInterest + 5, 0, 100);
+    }
+
+    const triangleThird = isTriangleAroundPair(state, a.id, b.id);
+    if (triangleThird) {
+      triangleThird.jealousy = clamp(triangleThird.jealousy + 20, 0, 100);
+      triangleThird.stress = clamp(triangleThird.stress + 10, 0, 100);
+    }
+
+    evaluateRoomIntimacy(state, a, b, highAttraction);
+  }
+
+  if (state.day === 2 && sejin && mina && !pairedSejinMina) {
+    sejin.jealousy = clamp(sejin.jealousy + 10, 0, 100);
+    state.dailyLog.push("[Day2 편향] 세진의 질투가 상승했다");
+  }
+
+  if (rooms.cageId) {
+    const caged = participantById(state, rooms.cageId);
+    if (caged) {
+      state.dailyLog.push(`[숙소] 1위 ${participantById(state, rooms.firstId)?.name ?? "-"} 럭셔리룸 / 8위 ${caged.name} 케이지`);
+    }
+  }
+}
+
 function gamePhase(state) {
   const scored = aliveParticipants(state).map((p) => {
     const previousRank = p.latestRank;
     const variance = p.traits?.performanceVariance ?? 1;
     const randomBase = randFloat(0, 100);
     const varianceJitter = randFloat(-20, 20) * (variance - 1);
-    const base = randomBase + varianceJitter + p.ambition * 0.3 - p.stress * 0.2 - p.difficultyOffset + p.nextGameModifier;
+    let dayBias = 0;
+    if (state.day === 2 && p.name === "JAEWOO") dayBias -= 12;
+    const base = randomBase + varianceJitter + p.ambition * 0.3 - p.stress * 0.2 - p.difficultyOffset + p.nextGameModifier + dayBias;
     const bonus = base * allianceBonus(state, p);
     const performance = base + bonus;
     return { id: p.id, performance, previousRank };
   });
 
   scored.sort((a, b) => b.performance - a.performance);
+  if (state.day === 2) {
+    const jaewoo = participantByName(state, "JAEWOO");
+    if (jaewoo) {
+      const idx = scored.findIndex((s) => s.id === jaewoo.id);
+      if (idx === scored.length - 1 && scored.length > 1) {
+        scored[idx].performance += 8;
+        scored[idx - 1].performance -= 4;
+        scored.sort((a, b) => b.performance - a.performance);
+      }
+    }
+  }
   state.rankings = scored;
 
   scored.forEach((entry, idx) => {
@@ -1578,6 +1788,17 @@ function updateAudienceSystem(state) {
 }
 
 function nightPhase(state) {
+  const rooms = createNightRoomAssignments(state);
+  applyRoomSwapIfQueued(state, rooms);
+  state.pendingRoomSwap = null;
+  state.roomAssignments = rooms;
+  applyRoomEffects(state, rooms);
+
+  const day3Unlocked = state.day >= 3 ? "ON" : "OFF";
+  if (state.day <= 3) {
+    state.dailyLog.push(`[Day${state.day} 편향] 친밀 교환 ${day3Unlocked}`);
+  }
+
   updateAttractionDynamics(state);
   processRelationships(state);
   updateLonelinessSystem(state);
@@ -1586,9 +1807,42 @@ function nightPhase(state) {
   applyStressFearModel(state);
   applyCaretakerSupport(state);
   triggerEmotionalCascade(state);
+  applyEarlyDramaGuarantees(state);
   updateAudienceSystem(state);
   computeDramaScore(state);
   state.dailyLog.push("[야간] 감정·관계 엔진 반영");
+}
+
+function applyEarlyDramaGuarantees(state) {
+  if (state.day > 3) return;
+  const mina = participantByName(state, "MINA");
+  const dohyun = participantByName(state, "DOHYUN");
+  const jaewoo = participantByName(state, "JAEWOO");
+  const sejin = participantByName(state, "SEJIN");
+
+  if (mina && dohyun) {
+    const currentA = mina.attraction[dohyun.id] ?? 0;
+    const currentB = dohyun.attraction[mina.id] ?? 0;
+    if (currentA < 85) mina.attraction[dohyun.id] = clamp(currentA + 5, 0, 100);
+    if (currentB < 85) dohyun.attraction[mina.id] = clamp(currentB + 5, 0, 100);
+  }
+
+  if (state.day === 3) {
+    const maxJealousy = Math.max(...aliveParticipants(state).map((p) => p.jealousy));
+    if (maxJealousy <= 60 && sejin) {
+      sejin.jealousy = clamp(62, 0, 100);
+      state.dailyLog.push("[Day3 보장] 질투 급등 발동");
+    }
+
+    const hadVisibleConfrontation = state.dailyLog.some((line) => line.includes("[대치]") || line.includes("[배신 발동]"));
+    if (!hadVisibleConfrontation && jaewoo && dohyun) {
+      growTrust(state, jaewoo, dohyun.id, -15);
+      growTrust(state, dohyun, jaewoo.id, -10);
+      jaewoo.stress = clamp(jaewoo.stress + 5, 0, 100);
+      dohyun.stress = clamp(dohyun.stress + 8, 0, 100);
+      state.dailyLog.push(`[Day3 보장] 라이벌 대치 ${jaewoo.name} vs ${dohyun.name}`);
+    }
+  }
 }
 
 function cleanMatricesAfterDeath(state, deadId) {
@@ -1662,7 +1916,7 @@ function resolveDeathAttempt(state, actor, victim, reason, globalModifier) {
   if (victim.publicImage > 75) pDeath -= 0.1;
   pDeath = clamp(pDeath + globalModifier, 0.2, 0.8);
 
-  if (state.day <= 2) pDeath = 0;
+  if (state.day <= 3) pDeath = 0;
   else if (state.day <= 4) pDeath *= 0.5;
 
   if (Math.random() < pDeath) {
@@ -1736,8 +1990,8 @@ function deathCheck(state) {
     p.instabilityScore = computeInstabilityScore(p);
   }
 
-  if (state.day <= 2) {
-    state.dailyLog.push("[사망판정] Day 1-2 안전구간");
+  if (state.day <= 3) {
+    state.dailyLog.push("[사망판정] Day 1-3 안전구간");
     return;
   }
 
@@ -1777,7 +2031,7 @@ function deathCheck(state) {
     if (a.jealousy > 75) pViolent += 0.1;
     if (endgameMode) pViolent += 0.1;
     pViolent = clamp(pViolent, 0, 0.35);
-    if (state.day <= 2) pViolent = 0;
+    if (state.day <= 3) pViolent = 0;
 
     if (Math.random() < pViolent) {
       const victim = lowestTrustTarget(state, a);
@@ -2027,6 +2281,7 @@ function resetDailyFlags(state) {
     p.wasNightCageToday = false;
     p.difficultyOffset = Math.max(0, p.difficultyOffset - 5);
     p.violentEventBonus = 0;
+    p.roomIntimacyBias = 0;
   }
   state.newAlliancesToday = [];
   state.dailyRelationshipEvents = [];
@@ -2096,6 +2351,17 @@ function queueHostAction(state) {
   render(state);
 }
 
+function queueRoomSwap(state) {
+  if (!state || state.gameOver) return;
+  const aId = document.getElementById("room-swap-a").value;
+  const bId = document.getElementById("room-swap-b").value;
+  if (!aId || !bId || aId === bId) return;
+  state.pendingRoomSwap = { day: state.day, aId, bId };
+  state.dailyLog.push(`[숙소 스왑 예약] ${participantById(state, aId)?.name ?? aId} <-> ${participantById(state, bId)?.name ?? bId}`);
+  saveState(state);
+  render(state);
+}
+
 function setHostTargetOptions(state) {
   const selects = [document.getElementById("host-target-a"), document.getElementById("host-target-b")];
   const alive = aliveParticipants(state);
@@ -2108,6 +2374,32 @@ function setHostTargetOptions(state) {
       option.value = p.id;
       option.textContent = `${p.name} (${ROLE_LABEL[p.role] ?? p.role})`;
       select.appendChild(option);
+    }
+    if ([...select.options].some((o) => o.value === prev)) select.value = prev;
+  }
+}
+
+function setRoomSwapOptions(state) {
+  const alive = aliveParticipants(state);
+  const roomPoolIds = new Set(alive.map((p) => p.id));
+  if (state.rankings.length) {
+    const firstId = state.rankings[0]?.id;
+    const lastId = state.rankings[state.rankings.length - 1]?.id;
+    roomPoolIds.delete(firstId);
+    roomPoolIds.delete(lastId);
+  }
+  const candidates = alive.filter((p) => roomPoolIds.has(p.id));
+
+  const selects = [document.getElementById("room-swap-a"), document.getElementById("room-swap-b")];
+  for (const select of selects) {
+    if (!select) continue;
+    const prev = select.value;
+    select.innerHTML = "";
+    for (const p of candidates) {
+      const o = document.createElement("option");
+      o.value = p.id;
+      o.textContent = p.name;
+      select.appendChild(o);
     }
     if ([...select.options].some((o) => o.value === prev)) select.value = prev;
   }
@@ -2168,6 +2460,24 @@ function renderPriority(state) {
     deathBanner.classList.add("hidden");
     deathBanner.textContent = "";
   }
+
+  const roomView = document.getElementById("room-assignments");
+  if (roomView) {
+    if (!state.roomAssignments) {
+      roomView.textContent = "방 배정 기록 없음";
+    } else {
+      const rooms = state.roomAssignments;
+      const first = participantById(state, rooms.firstId)?.name ?? "-";
+      const cage = participantById(state, rooms.cageId)?.name ?? "-";
+      const pairs = rooms.sharedPairs
+        .map(([aId, bId]) => `${participantById(state, aId)?.name ?? aId} · ${participantById(state, bId)?.name ?? bId}`)
+        .join(" / ");
+      const swapped = rooms.swapApplied && rooms.swapDetail
+        ? ` | 스왑: ${participantById(state, rooms.swapDetail.aId)?.name ?? "-"}↔${participantById(state, rooms.swapDetail.bId)?.name ?? "-"}`
+        : "";
+      roomView.textContent = `럭셔리룸: ${first} | 케이지: ${cage}\n공용룸: ${pairs}${swapped}`;
+    }
+  }
 }
 
 function renderBroadcast(state) {
@@ -2226,24 +2536,31 @@ function renderParticipants(state) {
 
 function renderHostQueue(state) {
   const view = document.getElementById("host-queue-view");
+  const roomSwapText =
+    state.pendingRoomSwap && state.pendingRoomSwap.day === state.day
+      ? ` | 숙소 스왑 예약: ${participantById(state, state.pendingRoomSwap.aId)?.name ?? "-"}↔${
+          participantById(state, state.pendingRoomSwap.bId)?.name ?? "-"
+        }`
+      : "";
   if (state.hostProducerNote) {
-    view.textContent = `${state.hostProducerNote} | 사용 ${state.hostActionsUsedToday}/${CONFIG.hostActionsPerDay}`;
+    view.textContent = `${state.hostProducerNote} | 사용 ${state.hostActionsUsedToday}/${CONFIG.hostActionsPerDay}${roomSwapText}`;
     return;
   }
   if (!state.pendingHostAction) {
-    view.textContent = `대기중 | 사용 ${state.hostActionsUsedToday}/${CONFIG.hostActionsPerDay}`;
+    view.textContent = `대기중 | 사용 ${state.hostActionsUsedToday}/${CONFIG.hostActionsPerDay}${roomSwapText}`;
     return;
   }
   const a = participantById(state, state.pendingHostAction.targetA);
   const b = state.pendingHostAction.targetB ? participantById(state, state.pendingHostAction.targetB) : null;
   const actionLabel = HOST_ACTION_LABEL[state.pendingHostAction.type] ?? state.pendingHostAction.type;
-  view.textContent = `준비됨: ${actionLabel} | ${a?.name ?? "?"}${b ? `, ${b.name}` : ""}`;
+  view.textContent = `준비됨: ${actionLabel} | ${a?.name ?? "?"}${b ? `, ${b.name}` : ""}${roomSwapText}`;
 }
 
 function render(state) {
   if (!state) return;
   renderTopBar(state);
   setHostTargetOptions(state);
+  setRoomSwapOptions(state);
   renderHostQueue(state);
   renderPriority(state);
   renderBroadcast(state);
@@ -2405,6 +2722,13 @@ function bindEvents(stateRef) {
   document.getElementById("queue-host-btn").addEventListener("click", () => {
     queueHostAction(stateRef.state);
   });
+
+  const roomSwapBtn = document.getElementById("apply-room-swap-btn");
+  if (roomSwapBtn) {
+    roomSwapBtn.addEventListener("click", () => {
+      queueRoomSwap(stateRef.state);
+    });
+  }
 
   document.getElementById("next-day-btn").addEventListener("click", () => {
     nextDay(stateRef.state);
