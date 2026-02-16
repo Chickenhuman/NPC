@@ -58,6 +58,83 @@ const ROLE_LABEL = {
   SHADOW: "그림자",
 };
 
+const NARRATIVE_TEMPLATES = {
+  headline: {
+    death: {
+      moderate: ["철창의 밤이 끝난 뒤, 한 자리가 비었다", "밤의 공백이 오늘의 순위를 바꿨다"],
+      intense: ["새벽 방송이 이름 하나를 지웠다", "남겨진 일곱은 서로를 오래 보지 못했다"],
+    },
+    violence: {
+      moderate: ["침묵이 먼저 깨졌고 질서가 흔들렸다", "한 번의 충돌이 균형을 밀어냈다"],
+      intense: ["억눌린 감정이 광장 한복판에서 폭발했다", "섬의 규칙은 오늘 더 날카로워졌다"],
+    },
+    betrayal: {
+      moderate: ["동맹은 계약이었고, 계약은 파기됐다", "어제의 약속이 오늘의 무기가 됐다"],
+      intense: ["가장 가까운 손이 가장 먼저 등을 밀었다", "신뢰 붕괴가 순위표를 찢어냈다"],
+    },
+    romance: {
+      moderate: ["두 사람의 거리가 줄어든 밤", "속삭임이 연합보다 빠르게 퍼졌다"],
+      intense: ["애정의 온기가 질투의 속도를 높였다", "눈빛의 합의가 전장을 재배치했다"],
+    },
+    ranking: {
+      moderate: ["정상은 유지됐고 바닥은 더 낮아졌다", "순위표는 조용히 권력을 재분배했다"],
+      intense: ["왕좌는 더 높아졌고 추락은 더 가팔라졌다", "하루 만에 위계가 다시 쓰였다"],
+    },
+    powerShift: {
+      moderate: ["새로운 서열이 만들어졌다", "권력의 축이 옮겨갔다"],
+      intense: ["왕좌는 비틀렸고 추격자는 얼굴을 드러냈다", "지배의 문장이 하루 만에 바뀌었다"],
+    },
+  },
+  subtitle: {
+    observational: ["낮에는 웃음이 있었지만 밤에는 계산이 남았다.", "오늘의 기록은 우연처럼 보였고, 우연은 반복됐다."],
+    tense: ["누구도 먼저 확신하지 못한 채 다음 신호를 기다렸다.", "연결은 약해졌고 시선은 더 짧아졌다."],
+    dark: ["안전해 보이는 얼굴부터 균열이 시작됐다.", "관계의 표면 아래에서 불신이 자라났다."],
+    oppressive: ["모든 선택이 누군가의 퇴장을 예고하는 밤이었다.", "섬은 침묵으로도 위협을 전달했다."],
+  },
+  body: {
+    deathIntro: [
+      "{victim}는 새벽 호출에 응답하지 않았다.",
+      "첫 빛이 닿기 전에 {victim}의 자리는 비어 있었다.",
+    ],
+    cageLine: [
+      "{lastPlace}는 섬 중앙 철창에서 밤을 버텼다.",
+      "철창의 조명은 {lastPlace}의 표정을 오래 붙잡아 두었다.",
+    ],
+    cageRepeat: [
+      "{lastPlace}는 또 한 번 같은 철창으로 돌아갔다.",
+      "반복된 철창의 밤이 {lastPlace}의 호흡을 더 짧게 만들었다.",
+    ],
+    betrayalLine: [
+      "{betrayer}와 {betrayed} 사이의 약속은 순위 앞에서 무너졌다.",
+      "한때 같은 편이던 {betrayer}-{betrayed}는 오늘 다른 문장을 말했다.",
+    ],
+    romanceLine: [
+      "{loverA}와 {loverB}는 대화를 줄였지만 거리는 더 가까워졌다.",
+      "{loverA}-{loverB}의 침묵은 오히려 명확한 신호로 읽혔다.",
+    ],
+    jealousyLine: [
+      "주변의 시선은 오래 머물렀고, 몇몇은 미소를 거두지 못했다.",
+      "호감의 이동은 곧바로 질투의 수치로 번졌다.",
+    ],
+    fearReaction: [
+      "남은 참가자들은 서로를 오래 바라보지 못했다.",
+      "다음 밤을 가정하는 대화는 끝까지 완성되지 않았다.",
+    ],
+    suspicionHint: [
+      "일부 참가자들은 균형이 이상하게 맞아떨어진다고 속삭였다.",
+      "우연치고는 너무 정확한 결과라는 말이 짧게 떠돌았다.",
+    ],
+    foreshadow: [
+      "오늘의 정리는 내일의 충돌을 유예했을 뿐이었다.",
+      "정적은 평온이 아니라 대기 중인 신호에 가까웠다.",
+    ],
+    powerShift: [
+      "{shiftActor}의 급상승은 상위권의 표정을 바꿨다.",
+      "{shiftActor}가 세 칸 이상 움직이자 기존 동맹은 다시 계산을 시작했다.",
+    ],
+  },
+};
+
 const ARCHETYPES = [
   {
     id: "p1",
@@ -280,6 +357,25 @@ function weightedPick(items) {
   return positive[positive.length - 1];
 }
 
+function hashString(input) {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function createDeterministicRng(seed) {
+  let t = seed >>> 0;
+  return function rand() {
+    t += 0x6d2b79f5;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 function participantById(state, id) {
   return state.participants.find((p) => p.id === id);
 }
@@ -399,6 +495,7 @@ function applyInitialRelationSeeds(participants) {
 function initState() {
   const participants = initParticipants();
   const state = {
+    seasonSeed: randInt(1, 2147483640),
     day: 1,
     participants,
     hostActionsUsedToday: 0,
@@ -428,6 +525,12 @@ function initState() {
     detectionEventToday: false,
     hostLogs: [],
     hostProducerNote: "",
+    storyMemory: {
+      previousRivalries: [],
+      previousCageVictims: [],
+      previousRelationships: [],
+      lastUsedTemplate: {},
+    },
     pendingHostAction: null,
     gameOver: false,
     winnerId: null,
@@ -453,6 +556,7 @@ function loadState() {
 }
 
 function hydrateState(state) {
+  if (typeof state.seasonSeed !== "number") state.seasonSeed = randInt(1, 2147483640);
   if (typeof state.hostActionsUsedToday !== "number") state.hostActionsUsedToday = 0;
   if (typeof state.hostSuspicionGlobal !== "number") state.hostSuspicionGlobal = state.suspicion ?? 0;
   if (!("hostAgendaTargetId" in state)) state.hostAgendaTargetId = null;
@@ -463,6 +567,14 @@ function hydrateState(state) {
   if (typeof state.broadcastTone !== "string") state.broadcastTone = "neutral";
   if (!Array.isArray(state.hostLogs)) state.hostLogs = [];
   if (typeof state.hostProducerNote !== "string") state.hostProducerNote = "";
+  if (!state.storyMemory) {
+    state.storyMemory = {
+      previousRivalries: [],
+      previousCageVictims: [],
+      previousRelationships: [],
+      lastUsedTemplate: {},
+    };
+  }
   if (!Array.isArray(state.rumors)) state.rumors = [];
   if (!("detectionEventToday" in state)) state.detectionEventToday = false;
   if (!state.relationships) state.relationships = {};
@@ -745,6 +857,7 @@ function gamePhase(state) {
 
   scored.forEach((entry, idx) => {
     const p = participantById(state, entry.id);
+    p.prevRankForStory = entry.previousRank ?? null;
     p.latestRank = idx + 1;
     if (p.riggedLastDay && entry.previousRank && Math.abs(entry.previousRank - p.latestRank) >= 3) {
       p.suspicion = clamp(p.suspicion + 15, 0, 100);
@@ -1568,38 +1681,162 @@ function relationEventText(state) {
   return "관계는 냉각과 접근을 반복했지만 고정되지 않았다.";
 }
 
-function rankingEventText(state) {
-  const first = state.top3[0] ? participantById(state, state.top3[0]) : null;
-  const cage = state.cageVictimId ? participantById(state, state.cageVictimId) : null;
-  if (!first && !cage) return "순위 변동은 미미했다.";
-  const firstText = first ? `${first.name}가 1위를 유지하거나 탈환했다.` : "";
-  const cageText = cage ? `${cage.name}는 케이지로 보내졌다.` : "";
-  return `${firstText} ${cageText}`.trim();
+function toneByDramaScore(dramaScore) {
+  if (dramaScore < 30) return "observational";
+  if (dramaScore < 60) return "tense";
+  if (dramaScore < 80) return "dark";
+  return "oppressive";
 }
 
-function majorEventText(state) {
-  const intensity =
-    state.dramaScore >= 80 ? "EXTREME" : state.dramaScore >= 60 ? "HIGH" : state.dramaScore >= 40 ? "MEDIUM" : "LOW";
-  const death = state.latestDeath;
-  if (death) return `[${intensity}] ${death.name}의 이탈이 섬의 균형을 재정의했다.`;
-  if (state.detectionEventToday) return `[${intensity}] 제작진 개입 의혹이 공개 수면 위로 떠올랐다.`;
-  const hostLine = state.dailyLog.find((line) => line.includes("[주최자]"));
-  if (hostLine) return `[${intensity}] 제작진 개입 흔적이 통계에 미세한 왜곡을 남겼다.`;
-  const cage = state.cageVictimId ? participantById(state, state.cageVictimId) : null;
-  if (cage) return `[${intensity}] ${cage.name}의 공포 지표가 급상승했다.`;
-  return `[${intensity}] 오늘은 조용해 보였지만 지표는 더 어두운 방향으로 이동했다.`;
+function intensityLevel(dramaScore) {
+  return dramaScore > 70 ? "intense" : "moderate";
+}
+
+function pickTemplate(state, key, candidates, rng) {
+  if (!candidates || !candidates.length) return "";
+  const last = state.storyMemory.lastUsedTemplate[key];
+  const pool = candidates.length > 1 ? candidates.filter((_, i) => i !== last) : candidates;
+  const index = Math.floor(rng() * pool.length);
+  const picked = pool[index];
+  const sourceIndex = candidates.indexOf(picked);
+  state.storyMemory.lastUsedTemplate[key] = sourceIndex;
+  return picked;
+}
+
+function formatTemplate(template, vars) {
+  return template.replace(/\{(\w+)\}/g, (_, k) => `${vars[k] ?? ""}`);
+}
+
+function buildDailySummary(state) {
+  const ranking = state.rankings
+    .map((r) => participantById(state, r.id))
+    .filter(Boolean);
+  const firstPlace = ranking[0] ?? null;
+  const lastPlace = ranking[ranking.length - 1] ?? null;
+  const newRelationships = state.dailyRelationshipEvents
+    .filter((e) => e.startsWith("[연애 형성]"))
+    .map((e) => e.replace("[연애 형성] ", "").split(" & "));
+  const betrayals = state.dailyLog
+    .filter((line) => line.includes("[배신 발동]"))
+    .map((line) => line.replace("[배신 발동] ", "").split(" -> "));
+  const violentLine = state.dailyLog.find((line) => line.includes("폭력 사건"));
+  const deathEvent = state.latestDeath
+    ? {
+        victim: state.latestDeath.name,
+        reason: state.latestDeath.reason,
+      }
+    : null;
+  const hostLog = [...state.hostLogs].reverse().find((log) => log.day === state.day) ?? null;
+  const rankingShift = state.rankings
+    .map((r) => participantById(state, r.id))
+    .find((p) => p && p.latestRank && p.prevRankForStory && Math.abs(p.prevRankForStory - p.latestRank) >= 3);
+
+  return {
+    day: state.day,
+    ranking,
+    firstPlace,
+    lastPlace,
+    alliances: Object.values(state.alliances),
+    newRelationships,
+    betrayals,
+    rumors: state.rumors.filter((r) => r.dayCreated === state.day),
+    violentEvent: violentLine ? { text: violentLine } : null,
+    deathEvent,
+    hostLog,
+    dramaScore: state.dramaScore,
+    powerShift: rankingShift ? rankingShift.name : null,
+  };
+}
+
+function chooseHeadlineType(summary) {
+  if (summary.deathEvent) return "death";
+  if (summary.violentEvent) return "violence";
+  if (summary.betrayals.length) return "betrayal";
+  if (summary.newRelationships.length) return "romance";
+  if (summary.powerShift) return "powerShift";
+  return "ranking";
+}
+
+function updateStoryMemory(state, summary) {
+  const memory = state.storyMemory;
+  const rivalPairs = summary.betrayals.map((pair) => pair.join("::"));
+  if (summary.lastPlace) memory.previousCageVictims.unshift(summary.lastPlace.id);
+  memory.previousRivalries = [...rivalPairs, ...memory.previousRivalries].slice(0, 6);
+  const relPairs = summary.newRelationships.map((pair) => pair.join("::"));
+  memory.previousRelationships = [...relPairs, ...memory.previousRelationships].slice(0, 6);
+  memory.previousCageVictims = memory.previousCageVictims.slice(0, 6);
 }
 
 function generateStory(state) {
-  const p1 = `${state.day}일차. ${majorEventText(state)}`;
-  const p2 = `관계 레이어: ${relationEventText(state)}`;
-  const p3 = `랭킹 레이어: ${rankingEventText(state)} | 드라마 점수 ${state.dramaScore}`;
-  const p4 = state.latestDeath ? `사망 레이어: ${state.latestDeath.name} / ${state.latestDeath.reason}` : null;
+  const summary = buildDailySummary(state);
+  const tone = toneByDramaScore(summary.dramaScore);
+  const intensity = intensityLevel(summary.dramaScore);
+  const rngSeed = hashString(`${state.seasonSeed}:${summary.day}:story:${summary.dramaScore}`);
+  const rng = createDeterministicRng(rngSeed);
 
-  const lines = [p1, p2, p3];
-  if (p4) lines.push(p4);
+  const headlineType = chooseHeadlineType(summary);
+  const headline = pickTemplate(state, `headline.${headlineType}`, NARRATIVE_TEMPLATES.headline[headlineType][intensity], rng);
+  const subheadline = pickTemplate(state, `subtitle.${tone}`, NARRATIVE_TEMPLATES.subtitle[tone], rng);
 
-  state.dailyBroadcast = lines.join("\n\n");
+  const first = summary.firstPlace;
+  const last = summary.lastPlace;
+  const death = summary.deathEvent;
+  const betrayal = summary.betrayals[0];
+  const rel = summary.newRelationships[0];
+  const betrayalPairKey = betrayal ? betrayal.join("::") : null;
+  const repeatedBetrayal = betrayalPairKey && state.storyMemory.previousRivalries.slice(0, 3).includes(betrayalPairKey);
+
+  const vars = {
+    victim: death?.victim ?? (last?.name ?? "누군가"),
+    lastPlace: last?.name ?? "하위 참가자",
+    betrayer: betrayal?.[0] ?? "어제의 동맹",
+    betrayed: betrayal?.[1] ?? "오늘의 표적",
+    loverA: rel?.[0] ?? "두 사람",
+    loverB: rel?.[1] ?? "두 사람",
+    shiftActor: summary.powerShift ?? first?.name ?? "상위권",
+  };
+
+  const repeatedCage = last && state.storyMemory.previousCageVictims.slice(0, 3).includes(last.id);
+  const p1Main = death
+    ? pickTemplate(state, "body.deathIntro", NARRATIVE_TEMPLATES.body.deathIntro, rng)
+    : repeatedCage
+      ? pickTemplate(state, "body.cageRepeat", NARRATIVE_TEMPLATES.body.cageRepeat, rng)
+      : pickTemplate(state, "body.cageLine", NARRATIVE_TEMPLATES.body.cageLine, rng);
+  const p1 = formatTemplate(p1Main, vars);
+
+  let p2Core = "";
+  if (summary.betrayals.length) {
+    const line = pickTemplate(state, "body.betrayalLine", NARRATIVE_TEMPLATES.body.betrayalLine, rng);
+    p2Core = `${repeatedBetrayal ? "또 한 번, " : ""}${formatTemplate(line, vars)}`;
+  } else if (summary.newRelationships.length) {
+    const line = pickTemplate(state, "body.romanceLine", NARRATIVE_TEMPLATES.body.romanceLine, rng);
+    const jealousy = pickTemplate(state, "body.jealousyLine", NARRATIVE_TEMPLATES.body.jealousyLine, rng);
+    p2Core = `${formatTemplate(line, vars)} ${jealousy}`;
+  } else if (summary.powerShift) {
+    const line = pickTemplate(state, "body.powerShift", NARRATIVE_TEMPLATES.body.powerShift, rng);
+    p2Core = formatTemplate(line, vars);
+  } else {
+    const line = pickTemplate(state, "body.fearReaction", NARRATIVE_TEMPLATES.body.fearReaction, rng);
+    p2Core = line;
+  }
+
+  const paragraphs = [p1, p2Core];
+  if (summary.dramaScore > 60) {
+    const foreshadow = pickTemplate(state, "body.foreshadow", NARRATIVE_TEMPLATES.body.foreshadow, rng);
+    paragraphs.push(foreshadow);
+  }
+
+  let footer = "";
+  if (summary.hostLog && rng() < 0.3) {
+    footer = pickTemplate(state, "body.suspicionHint", NARRATIVE_TEMPLATES.body.suspicionHint, rng);
+  }
+
+  const output = [`[헤드라인] ${headline}`, `[부제] ${subheadline}`];
+  paragraphs.forEach((p, i) => output.push(`[본문${i + 1}] ${p}`));
+  if (footer) output.push(`[프로듀서 노트] ${footer}`);
+
+  state.dailyBroadcast = output.join("\n\n");
+  updateStoryMemory(state, summary);
 }
 
 function detectAttractionTriangle(state) {
