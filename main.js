@@ -47,6 +47,17 @@ const HOST_ACTION_LABEL = {
   RIG_GAME_DIFFICULTY: "난이도 조작",
 };
 
+const ROLE_LABEL = {
+  STRATEGIST: "전략가",
+  CHARMER: "매혹자",
+  REBEL: "반항아",
+  ICE_QUEEN: "빙결형",
+  UNSTABLE: "불안정형",
+  CARETAKER: "보호자",
+  OPPORTUNIST: "기회주의자",
+  SHADOW: "그림자",
+};
+
 const ARCHETYPES = [
   {
     id: "p1",
@@ -305,6 +316,7 @@ function createParticipantFromArchetype(archetype) {
     suspicion: randInt(0, 10),
     paranoia: 0,
     publicImage: clamp(50 + archetype.charisma * 0.2 + randInt(-10, 10), 0, 100),
+    instabilityScore: 0,
     trustBaseline: archetype.trustBaseline,
     traits: { ...archetype.traits },
     trust: {},
@@ -395,6 +407,8 @@ function initState() {
     broadcastBias: 0,
     hostInfluence: 50,
     freeShockTokenToday: false,
+    globalTension: 0,
+    broadcastTone: "neutral",
     alliances: {},
     relationships: {},
     rumors: [],
@@ -445,6 +459,8 @@ function hydrateState(state) {
   if (typeof state.broadcastBias !== "number") state.broadcastBias = 0;
   if (typeof state.hostInfluence !== "number") state.hostInfluence = 50;
   if (typeof state.freeShockTokenToday !== "boolean") state.freeShockTokenToday = false;
+  if (typeof state.globalTension !== "number") state.globalTension = 0;
+  if (typeof state.broadcastTone !== "string") state.broadcastTone = "neutral";
   if (!Array.isArray(state.hostLogs)) state.hostLogs = [];
   if (typeof state.hostProducerNote !== "string") state.hostProducerNote = "";
   if (!Array.isArray(state.rumors)) state.rumors = [];
@@ -467,6 +483,7 @@ function hydrateState(state) {
     if (!("riggedLastDay" in p)) p.riggedLastDay = null;
     if (typeof p.suspicion !== "number") p.suspicion = randInt(0, 10);
     if (typeof p.publicImage !== "number") p.publicImage = clamp(50 + p.charisma * 0.2 + randInt(-10, 10), 0, 100);
+    if (typeof p.instabilityScore !== "number") p.instabilityScore = 0;
     p.paranoia = clamp(p.fear * 0.6 + p.suspicion * 0.4, 0, 100);
     if (!p.role) p.role = "UNDEFINED";
     if (!p.traits) p.traits = {};
@@ -1224,12 +1241,16 @@ function applyLoveTriangleEffects(state) {
 
 function applyStressFearModel(state) {
   const firstId = state.rankings[0]?.id ?? null;
+  const endgameMode = aliveParticipants(state).length <= 3;
+  const stressGrowthMultiplier = 1 + state.globalTension * 0.01;
   for (const p of aliveParticipants(state)) {
     const allianceSupport = p.allianceId && state.alliances[p.allianceId] ? 10 : 0;
     const firstPlaceBonus = p.id === firstId ? 20 : 0;
-    p.stress = clamp(p.stress + p.fear * 0.3 + p.jealousy * 0.2 - allianceSupport - firstPlaceBonus, 0, 100);
+    const stressGrowth = (p.fear * 0.3 + p.jealousy * 0.2) * stressGrowthMultiplier;
+    p.stress = clamp(p.stress + stressGrowth - allianceSupport - firstPlaceBonus, 0, 100);
+    if (endgameMode) p.stress = clamp(p.stress + 10, 0, 100);
     p.stress = clamp(p.stress - 5, 0, 100);
-    p.fear = clamp(p.fear - 3, 0, 100);
+    if (!endgameMode) p.fear = clamp(p.fear - 3, 0, 100);
     p.stability = clamp(100 - p.stress, 0, 100);
     p.paranoia = clamp(p.fear * 0.6 + p.suspicion * 0.4, 0, 100);
   }
@@ -1333,19 +1354,117 @@ function cleanMatricesAfterDeath(state, deadId) {
   }
 }
 
+function computeInstabilityScore(p) {
+  return clamp(
+    p.stress * 0.35 + p.fear * 0.25 + p.jealousy * 0.2 + (100 - p.stability) * 0.2,
+    0,
+    100
+  );
+}
+
+function deathsLastNDays(state, n) {
+  const startDay = Math.max(1, state.day - n + 1);
+  return state.deaths.filter((d) => d.day >= startDay).length;
+}
+
+function noDeathDays(state) {
+  if (state.deaths.length === 0) return Math.max(0, state.day - 1);
+  const lastDay = Math.max(...state.deaths.map((d) => d.day));
+  return Math.max(0, state.day - lastDay);
+}
+
+function globalViolenceModifier(state) {
+  if (deathsLastNDays(state, 3) >= 2) return -0.2;
+  if (noDeathDays(state) >= 6) return 0.15;
+  return 0;
+}
+
+function lowestTrustTarget(state, actor) {
+  const others = aliveParticipants(state).filter((p) => p.id !== actor.id);
+  if (!others.length) return null;
+  return others.reduce((worst, target) => {
+    const score = actor.trust[target.id] ?? 0;
+    if (!worst) return { target, score };
+    return score < worst.score ? { target, score } : worst;
+  }, null)?.target;
+}
+
+function nearestRivalTarget(state, actor) {
+  const others = aliveParticipants(state).filter((p) => p.id !== actor.id);
+  const rivals = others.filter((p) => (actor.trust[p.id] ?? 0) < -20 || (p.trust[actor.id] ?? 0) < -20);
+  if (!rivals.length) return lowestTrustTarget(state, actor);
+  return rivals.sort((a, b) => (actor.trust[a.id] ?? 0) - (actor.trust[b.id] ?? 0))[0];
+}
+
+function hasAllianceProtection(state, victim) {
+  if (!victim.allianceId || !state.alliances[victim.allianceId]) return false;
+  const members = state.alliances[victim.allianceId].members
+    .map((id) => participantById(state, id))
+    .filter((p) => p && p.alive && p.id !== victim.id);
+  if (members.length < 2) return false;
+  const avgTrust = members.reduce((sum, m) => sum + (victim.trust[m.id] ?? 0), 0) / members.length;
+  return avgTrust > 60;
+}
+
+function resolveDeathAttempt(state, actor, victim, reason, globalModifier) {
+  if (!victim || !victim.alive) return false;
+
+  let pDeath = 0.4 + actor.instabilityScore / 200 - victim.stability / 300;
+  if (hasAllianceProtection(state, victim)) pDeath -= 0.2;
+  if (victim.publicImage > 75) pDeath -= 0.1;
+  pDeath = clamp(pDeath + globalModifier, 0.2, 0.8);
+
+  if (state.day <= 2) pDeath = 0;
+  else if (state.day <= 4) pDeath *= 0.5;
+
+  if (Math.random() < pDeath) {
+    killParticipant(state, victim, reason);
+    return true;
+  }
+
+  victim.stress = clamp(victim.stress + 20, 0, 100);
+  victim.fear = clamp(victim.fear + 15, 0, 100);
+  victim.paranoia = clamp(victim.paranoia + 10, 0, 100);
+  state.dailyLog.push(`[중상] ${victim.name} 중상 발생 (사망 없음)`);
+  return false;
+}
+
 function killParticipant(state, p, reason) {
+  const survivorsBefore = aliveParticipants(state).filter((x) => x.id !== p.id);
+  const closestAlly = survivorsBefore
+    .filter((x) => (x.allianceId && p.allianceId && x.allianceId === p.allianceId) || (x.trust[p.id] ?? -100) > 40)
+    .sort((a, b) => (b.trust[p.id] ?? -100) - (a.trust[p.id] ?? -100))[0];
+  const closestRival = survivorsBefore
+    .filter((x) => (x.trust[p.id] ?? 100) < -20 || (p.trust[x.id] ?? 100) < -20)
+    .sort((a, b) => (a.trust[p.id] ?? 100) - (b.trust[p.id] ?? 100))[0];
+
   p.alive = false;
   p.allianceId = null;
   p.latestRank = null;
   p.wasNightCageToday = false;
   p.previousNightCage = false;
   cleanMatricesAfterDeath(state, p.id);
+  for (const relKey of Object.keys(state.relationships)) {
+    const rel = state.relationships[relKey];
+    if (rel.aId === p.id || rel.bId === p.id) delete state.relationships[relKey];
+  }
+  state.rumors = state.rumors.filter((r) => r.sourceId !== p.id && r.targetId !== p.id);
   state.latestDeath = { id: p.id, name: p.name, reason, day: state.day };
   state.deaths.push(state.latestDeath);
   state.dailyLog.push(`[사망] ${p.name} | ${reason}`);
   for (const other of aliveParticipants(state)) {
-    if (other.id === p.id) continue;
     other.fear = clamp(other.fear + 15, 0, 100);
+    other.stress = clamp(other.stress + 10, 0, 100);
+    other.paranoia = clamp(other.paranoia + 10, 0, 100);
+  }
+
+  if (closestAlly && closestAlly.alive) {
+    closestAlly.stress = clamp(closestAlly.stress + 20, 0, 100);
+    closestAlly.jealousy = clamp(closestAlly.jealousy + 10, 0, 100);
+  }
+
+  if (closestRival && closestRival.alive) {
+    closestRival.fear = clamp(closestRival.fear + 5, 0, 100);
   }
 
   for (const [allianceId, alliance] of Object.entries(state.alliances)) {
@@ -1353,29 +1472,70 @@ function killParticipant(state, p, reason) {
       dissolveAlliance(state, allianceId, `${p.name} 사망`);
     }
   }
+
+  state.globalTension = clamp(state.globalTension + 10, 0, 100);
+  state.broadcastTone = "dark";
+  state.dramaScore += 25;
 }
 
 function deathCheck(state) {
   state.latestDeath = null;
-  if (CONFIG.day1To2DeathDisabled && state.day <= 2) {
-    state.dailyLog.push("[사망판정] Day 1-2 비활성");
+  const people = aliveParticipants(state);
+  const endgameMode = people.length <= 3;
+  const globalModifier = globalViolenceModifier(state);
+
+  for (const p of people) {
+    p.instabilityScore = computeInstabilityScore(p);
+  }
+
+  if (state.day <= 2) {
+    state.dailyLog.push("[사망판정] Day 1-2 안전구간");
     return;
   }
 
-  const people = aliveParticipants(state);
+  // Psychological collapse branch
+  const collapseStressThreshold = endgameMode ? 80 : 90;
+  const collapseFearThreshold = endgameMode ? 65 : 75;
   for (const p of people) {
-    if (p.stress >= 95 && p.fear >= 80 && p.wasNightCageToday) {
-      killParticipant(state, p, "Psychological Collapse");
-      return;
+    const isolated = !p.allianceId && !isInRelationship(state, p.id);
+    const collapseEligible = p.wasNightCageToday || (isolated && p.loneliness > 80);
+    if (!collapseEligible) continue;
+    if (!(p.stress > collapseStressThreshold && p.fear > collapseFearThreshold)) continue;
+
+    let pCollapse = (p.stress - 85) * 0.02 + (p.fear - 70) * 0.015;
+    pCollapse = clamp(pCollapse, 0, 0.6);
+    if (state.day <= 4) pCollapse *= 0.5;
+
+    if (Math.random() < pCollapse) {
+      if (Math.random() < 0.5) {
+        const dead = resolveDeathAttempt(state, p, p, "심리 붕괴 (자해)", globalModifier);
+        if (dead) return;
+      } else {
+        const target = nearestRivalTarget(state, p);
+        const dead = resolveDeathAttempt(state, p, target, `심리 붕괴 폭발 (${p.name})`, globalModifier);
+        if (dead) return;
+      }
     }
   }
 
+  // Violent incident branch
   for (const a of people) {
-    const violentTarget = people.find((b) => b.id !== a.id && (a.trust[b.id] ?? 0) < -70);
-    if (violentTarget && a.stress > 80) {
-      const violentChance = clamp(0.35 + (a.violentEventBonus ?? 0), 0, 0.95);
-      if (Math.random() < violentChance) {
-        killParticipant(state, a, `Violent Incident linked to ${violentTarget.name}`);
+    const hostileTarget = people.find((b) => b.id !== a.id && (a.trust[b.id] ?? 0) < -60);
+    if (!hostileTarget) continue;
+    if (a.instabilityScore <= 70) continue;
+
+    let pViolent = 0.01 + a.instabilityScore / 200 + state.hostSuspicionGlobal / 500 + globalModifier;
+    pViolent += 0.15;
+    if (a.jealousy > 75) pViolent += 0.1;
+    if (endgameMode) pViolent += 0.1;
+    pViolent = clamp(pViolent, 0, 0.35);
+    if (state.day <= 2) pViolent = 0;
+
+    if (Math.random() < pViolent) {
+      const victim = lowestTrustTarget(state, a);
+      if (!victim) continue;
+      const dead = resolveDeathAttempt(state, a, victim, `폭력 사건 (${a.name} 기점)`, globalModifier);
+      if (dead) {
         return;
       }
     }
@@ -1570,7 +1730,7 @@ function renderTopBar(state) {
   const alive = aliveParticipants(state).length;
   const winner = state.winnerId ? participantById(state, state.winnerId) : null;
   const status = state.gameOver ? `시즌 종료 | 우승 ${winner ? winner.name : "-"}` : "시즌 진행 중";
-  document.getElementById("season-meta").textContent = `Day ${state.day}/20 | 생존 ${alive}/8 | 드라마 ${state.dramaScore} | ${status}`;
+  document.getElementById("season-meta").textContent = `${state.day}일/20일 | 생존 ${alive}/8 | 드라마 ${state.dramaScore} | ${status}`;
 }
 
 function renderPriority(state) {
@@ -1660,7 +1820,7 @@ function renderParticipants(state) {
     const alliance = p.allianceId && state.alliances[p.allianceId] ? "동맹" : "단독";
     card.innerHTML = `
       <div class="row-split"><strong>${p.name}</strong><span>${p.alive ? "생존" : "사망"}</span></div>
-      <div class="row-split"><span>${p.role}</span><span>${p.gender}/${p.age}</span></div>
+      <div class="row-split"><span>${ROLE_LABEL[p.role] ?? p.role}</span><span>${p.gender}/${p.age}</span></div>
       <div class="row-split"><span>점수 ${p.points}</span><span>순위 ${p.latestRank ?? "-"}</span></div>
       <div class="row-split"><span>스트레스 ${toPercent(p.stress)}</span>${statTag(p.stress, 65, 85)}</div>
       <div class="row-split"><span>공포 ${toPercent(p.fear)}</span>${statTag(p.fear, 55, 80)}</div>
@@ -1719,7 +1879,7 @@ function updateMainStatus(stateRef) {
   }
   const s = hydrateState(loaded);
   const winner = s.winnerId ? participantById(s, s.winnerId)?.name ?? "-" : "-";
-  status.textContent = `저장: Day ${s.day}, 생존 ${aliveParticipants(s).length}, 드라마 ${s.dramaScore}, 우승자 ${winner}`;
+  status.textContent = `저장: ${s.day}일차, 생존 ${aliveParticipants(s).length}, 드라마 ${s.dramaScore}, 우승자 ${winner}`;
   stateRef.state = s;
 }
 
@@ -1733,7 +1893,7 @@ function setAgendaTargetOptions(state) {
   for (const p of state.participants) {
     const option = document.createElement("option");
     option.value = p.id;
-    option.textContent = `${p.name} (${p.role})`;
+    option.textContent = `${p.name} (${ROLE_LABEL[p.role] ?? p.role})`;
     select.appendChild(option);
   }
   select.value = state.hostAgendaTargetId || "";
