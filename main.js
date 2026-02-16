@@ -6,7 +6,9 @@ const CONFIG = {
   day1To2DeathDisabled: true,
   enableHostInfluence: false,
   enableFreeShockToken: true,
-  actionTypes: ["TALK", "FORM_ALLIANCE", "BREAK_ALLIANCE", "FLIRT", "GOSSIP", "BETRAY", "INTIMIDATE", "PROTECT"],
+  seasonEndByDay: true,
+  seasonEndByLastAlive: true,
+  actionTypes: ["TALK", "FORM_ALLIANCE", "BREAK_ALLIANCE", "FLIRT", "GOSSIP", "BETRAY", "INTIMIDATE", "PROTECT", "INTIMATE_EXCHANGE"],
 };
 
 const HOST_ACTIONS = {
@@ -76,6 +78,10 @@ const NARRATIVE_TEMPLATES = {
       moderate: ["두 사람의 거리가 줄어든 밤", "속삭임이 연합보다 빠르게 퍼졌다"],
       intense: ["애정의 온기가 질투의 속도를 높였다", "눈빛의 합의가 전장을 재배치했다"],
     },
+    intimacy: {
+      moderate: ["카메라 밖의 밤이 낮의 균형을 흔들었다", "가까워진 거리만큼 계산은 더 복잡해졌다"],
+      intense: ["사적인 거래가 공개 판도를 뒤집었다", "은밀한 합의가 가장 큰 소음을 만들었다"],
+    },
     ranking: {
       moderate: ["정상은 유지됐고 바닥은 더 낮아졌다", "순위표는 조용히 권력을 재분배했다"],
       intense: ["왕좌는 더 높아졌고 추락은 더 가팔라졌다", "하루 만에 위계가 다시 쓰였다"],
@@ -111,6 +117,10 @@ const NARRATIVE_TEMPLATES = {
     romanceLine: [
       "{loverA}와 {loverB}는 대화를 줄였지만 거리는 더 가까워졌다.",
       "{loverA}-{loverB}의 침묵은 오히려 명확한 신호로 읽혔다.",
+    ],
+    intimacyLine: [
+      "{loverA}와 {loverB}는 카메라가 닿지 않는 시간에 더 많은 것을 주고받았다.",
+      "짧은 밤 이후 {loverA}-{loverB} 사이에는 새로운 빚과 약속이 생겼다.",
     ],
     jealousyLine: [
       "주변의 시선은 오래 머물렀고, 몇몇은 미소를 거두지 못했다.",
@@ -408,6 +418,7 @@ function createParticipantFromArchetype(archetype) {
     charisma: archetype.charisma,
     jealousy: randInt(10, 40),
     loneliness: 30,
+    desire: randInt(30, 70),
     stability: clamp(100 - archetype.stress, 0, 100),
     suspicion: randInt(0, 10),
     paranoia: 0,
@@ -417,6 +428,7 @@ function createParticipantFromArchetype(archetype) {
     traits: { ...archetype.traits },
     trust: {},
     attraction: {},
+    leverage: {},
     allianceId: null,
     previousNightCage: false,
     wasNightCageToday: false,
@@ -442,6 +454,7 @@ function initParticipants() {
       a.trust[b.id] = clamp(randInt(-20, 20) + (a.trustBaseline ?? 0), -100, 100);
       const attraction = b.appearance * 0.4 + b.charisma * 0.3 + randInt(-20, 20);
       a.attraction[b.id] = clamp(Math.round(attraction), 0, 100);
+      a.leverage[b.id] = 0;
     }
   }
 
@@ -502,6 +515,9 @@ function initState() {
     hostSuspicionGlobal: 0,
     hostAgendaTargetId: null,
     broadcastBias: 0,
+    audienceInterest: 50,
+    audienceMood: 0,
+    scandalLevel: 0,
     hostInfluence: 50,
     freeShockTokenToday: false,
     globalTension: 0,
@@ -519,6 +535,7 @@ function initState() {
     dailyLog: [],
     dailyBroadcast: "시즌 초기화 완료.",
     dailyRelationshipEvents: [],
+    dailyIntimacyEvents: [],
     newAlliancesToday: [],
     confrontationEventsToday: [],
     hostEventToday: false,
@@ -561,6 +578,9 @@ function hydrateState(state) {
   if (typeof state.hostSuspicionGlobal !== "number") state.hostSuspicionGlobal = state.suspicion ?? 0;
   if (!("hostAgendaTargetId" in state)) state.hostAgendaTargetId = null;
   if (typeof state.broadcastBias !== "number") state.broadcastBias = 0;
+  if (typeof state.audienceInterest !== "number") state.audienceInterest = 50;
+  if (typeof state.audienceMood !== "number") state.audienceMood = 0;
+  if (typeof state.scandalLevel !== "number") state.scandalLevel = 0;
   if (typeof state.hostInfluence !== "number") state.hostInfluence = 50;
   if (typeof state.freeShockTokenToday !== "boolean") state.freeShockTokenToday = false;
   if (typeof state.globalTension !== "number") state.globalTension = 0;
@@ -579,6 +599,7 @@ function hydrateState(state) {
   if (!("detectionEventToday" in state)) state.detectionEventToday = false;
   if (!state.relationships) state.relationships = {};
   if (!Array.isArray(state.dailyRelationshipEvents)) state.dailyRelationshipEvents = [];
+  if (!Array.isArray(state.dailyIntimacyEvents)) state.dailyIntimacyEvents = [];
   if (!Array.isArray(state.newAlliancesToday)) state.newAlliancesToday = [];
   if (!Array.isArray(state.confrontationEventsToday)) state.confrontationEventsToday = [];
   if (typeof state.dramaScore !== "number") state.dramaScore = 0;
@@ -588,6 +609,7 @@ function hydrateState(state) {
   for (const p of state.participants) {
     if (typeof p.jealousy !== "number") p.jealousy = randInt(10, 40);
     if (typeof p.loneliness !== "number") p.loneliness = 30;
+    if (typeof p.desire !== "number") p.desire = randInt(30, 70);
     if (typeof p.stability !== "number") p.stability = clamp(100 - p.stress, 0, 100);
     if (typeof p.lowRankStreak !== "number") p.lowRankStreak = 0;
     if (typeof p.violentEventBonus !== "number") p.violentEventBonus = 0;
@@ -599,6 +621,11 @@ function hydrateState(state) {
     p.paranoia = clamp(p.fear * 0.6 + p.suspicion * 0.4, 0, 100);
     if (!p.role) p.role = "UNDEFINED";
     if (!p.traits) p.traits = {};
+    if (!p.leverage) p.leverage = {};
+    for (const other of state.participants) {
+      if (other.id === p.id) continue;
+      if (typeof p.leverage[other.id] !== "number") p.leverage[other.id] = 0;
+    }
   }
   return state;
 }
@@ -661,6 +688,75 @@ function growAttraction(from, toId, delta) {
   const attractionGainMultiplier = from.traits?.attractionGainMultiplier ?? 1;
   const scaledDelta = delta > 0 ? delta * attractionGainMultiplier : delta;
   from.attraction[toId] = clamp((from.attraction[toId] ?? 0) + scaledDelta, 0, 100);
+}
+
+function canIntimateExchange(actor, target) {
+  return (
+    (actor.trust[target.id] ?? 0) > 40 &&
+    (actor.attraction[target.id] ?? 0) > 65 &&
+    (actor.desire > 50 || actor.ambition > 75)
+  );
+}
+
+function applyIntimateExchange(state, actor, target) {
+  const transfer = randInt(1, 4);
+  const giver = actor.points >= target.points ? actor : target;
+  const receiver = giver.id === actor.id ? target : actor;
+  const moved = Math.min(transfer, giver.points);
+  if (moved > 0) {
+    giver.points -= moved;
+    receiver.points += moved;
+  }
+
+  growTrust(state, actor, target.id, 10);
+  growTrust(state, target, actor.id, 10);
+  growAttraction(actor, target.id, 10);
+  growAttraction(target, actor.id, 5);
+  receiver.leverage[giver.id] = clamp((receiver.leverage[giver.id] ?? 0) + 20, 0, 100);
+
+  for (const p of aliveParticipants(state)) {
+    if (p.id === actor.id || p.id === target.id) continue;
+    if ((p.attraction[actor.id] ?? 0) > 60 || (p.attraction[target.id] ?? 0) > 60) {
+      p.jealousy = clamp(p.jealousy + 15, 0, 100);
+      p.trust[actor.id] = clamp((p.trust[actor.id] ?? 0) - 15, -100, 100);
+      p.trust[target.id] = clamp((p.trust[target.id] ?? 0) - 15, -100, 100);
+    }
+  }
+
+  const pairKeyText = [actor.name, target.name].sort().join("::");
+  const repeatCount = state.dailyIntimacyEvents.filter((e) => e.pairKey === pairKeyText).length;
+
+  state.audienceInterest = clamp(state.audienceInterest + 20 + ((actor.charisma + target.charisma) / 2) * 0.1, 0, 100);
+  if (state.deaths.length === 0 && state.dailyIntimacyEvents.length === 0) {
+    state.audienceInterest = clamp(state.audienceInterest + 10, 0, 100);
+  }
+  state.scandalLevel = clamp(state.scandalLevel + 15, 0, 100);
+  if (repeatCount > 2) {
+    state.audienceInterest = clamp(state.audienceInterest + 5, 0, 100);
+    state.scandalLevel = clamp(state.scandalLevel + 20, 0, 100);
+    actor.publicImage = clamp(actor.publicImage - 15, 0, 100);
+    target.publicImage = clamp(target.publicImage - 15, 0, 100);
+    state.audienceMood = clamp(state.audienceMood - 10, -100, 100);
+    for (const p of aliveParticipants(state)) {
+      if (p.id === actor.id || p.id === target.id) continue;
+      p.trust[actor.id] = clamp((p.trust[actor.id] ?? 0) - 10, -100, 100);
+      p.trust[target.id] = clamp((p.trust[target.id] ?? 0) - 10, -100, 100);
+    }
+  }
+
+  for (const rumor of state.rumors) {
+    if (rumor.sourceId === actor.id || rumor.sourceId === target.id || rumor.targetId === actor.id || rumor.targetId === target.id) {
+      rumor.spread = clamp(rumor.spread + 0.25, 0, 1);
+    }
+  }
+
+  state.dailyIntimacyEvents.push({
+    pairKey: pairKeyText,
+    actorId: actor.id,
+    targetId: target.id,
+    pointsMoved: moved,
+  });
+  state.dailyRelationshipEvents.push(`[친밀 교환] ${actor.name} & ${target.name}`);
 }
 
 function applySocialAction(state, actor, target, actionType) {
@@ -729,6 +825,17 @@ function applySocialAction(state, actor, target, actionType) {
     log.push(`${actor.name}가 ${target.name}를 보호`);
   }
 
+  if (actionType === "INTIMATE_EXCHANGE") {
+    if (canIntimateExchange(actor, target)) {
+      applyIntimateExchange(state, actor, target);
+      actor.desire = clamp(actor.desire - 20, 0, 100);
+      target.desire = clamp(target.desire - 10, 0, 100);
+      log.push(`${actor.name}와 ${target.name}가 카메라 밖에서 친밀 교환`);
+    } else {
+      log.push(`${actor.name}의 친밀 시도는 성사되지 않았다`);
+    }
+  }
+
   return log;
 }
 
@@ -759,6 +866,7 @@ function chooseActionType(actor, target) {
     BETRAY: (actor.ambition > 70 ? 10 : 3) + betrayalBias * 11 + (1 - empathy) * 5,
     INTIMIDATE: 5 + actor.stress * 0.07 + (1 - empathy) * 3,
     PROTECT: 7 + Math.max(0, trust * 0.06),
+    INTIMATE_EXCHANGE: canIntimateExchange(actor, target) ? 8 + actor.desire * 0.12 + actor.ambition * 0.05 : 1,
   };
 
   if (actor.jealousy > 60) {
@@ -1302,6 +1410,8 @@ function updateLonelinessSystem(state) {
         p.attraction[target.id] = clamp((p.attraction[target.id] ?? 0) + 15, 0, 100);
       }
     }
+    const desireDelta = p.loneliness * 0.05 - p.stress * 0.03 + randFloat(-2, 2);
+    p.desire = clamp(p.desire + desireDelta, 0, 100);
   }
 }
 
@@ -1446,6 +1556,27 @@ function computeDramaScore(state) {
   state.dramaScore = Math.round(avgJealousy * 0.3 + avgStress * 0.3 + activeRelationships * 10 + rivalries * 15 + recentDeaths * 25);
 }
 
+function updateAudienceSystem(state) {
+  state.audienceInterest = clamp(state.audienceInterest - 3, 0, 100);
+  const majorEvent = !!(state.latestDeath || state.dailyIntimacyEvents.length || state.dailyRelationshipEvents.length || state.detectionEventToday);
+  const quietStreak = noDeathDays(state) >= 3 && !majorEvent;
+  if (quietStreak) state.audienceInterest = clamp(state.audienceInterest - 10, 0, 100);
+
+  if (state.audienceInterest > 80) {
+    state.scandalLevel = clamp(state.scandalLevel + 8, 0, 100);
+    for (const p of aliveParticipants(state)) {
+      p.stress = clamp(p.stress + 5, 0, 100);
+      p.jealousy = clamp(p.jealousy + 10, 0, 100);
+    }
+  } else if (state.audienceInterest > 60) {
+    for (const p of aliveParticipants(state)) {
+      p.publicImage = clamp(p.publicImage + 2, 0, 100);
+    }
+  }
+
+  state.audienceMood = clamp(state.audienceMood + (state.dailyIntimacyEvents.length ? 4 : -1) + (state.latestDeath ? -6 : 0), -100, 100);
+}
+
 function nightPhase(state) {
   updateAttractionDynamics(state);
   processRelationships(state);
@@ -1455,6 +1586,7 @@ function nightPhase(state) {
   applyStressFearModel(state);
   applyCaretakerSupport(state);
   triggerEmotionalCascade(state);
+  updateAudienceSystem(state);
   computeDramaScore(state);
   state.dailyLog.push("[야간] 감정·관계 엔진 반영");
 }
@@ -1464,6 +1596,7 @@ function cleanMatricesAfterDeath(state, deadId) {
     if (p.id === deadId) continue;
     delete p.trust[deadId];
     delete p.attraction[deadId];
+    delete p.leverage[deadId];
   }
 }
 
@@ -1487,9 +1620,11 @@ function noDeathDays(state) {
 }
 
 function globalViolenceModifier(state) {
-  if (deathsLastNDays(state, 3) >= 2) return -0.2;
-  if (noDeathDays(state) >= 6) return 0.15;
-  return 0;
+  let mod = 0;
+  if (deathsLastNDays(state, 3) >= 2) mod -= 0.2;
+  if (noDeathDays(state) >= 6) mod += 0.15;
+  if (state.audienceInterest > 75) mod += 0.1;
+  return mod;
 }
 
 function lowestTrustTarget(state, actor) {
@@ -1719,6 +1854,11 @@ function buildDailySummary(state) {
   const betrayals = state.dailyLog
     .filter((line) => line.includes("[배신 발동]"))
     .map((line) => line.replace("[배신 발동] ", "").split(" -> "));
+  const intimacies = state.dailyIntimacyEvents.map((e) => {
+    const a = participantById(state, e.actorId);
+    const b = participantById(state, e.targetId);
+    return [a?.name ?? e.actorId, b?.name ?? e.targetId];
+  });
   const violentLine = state.dailyLog.find((line) => line.includes("폭력 사건"));
   const deathEvent = state.latestDeath
     ? {
@@ -1739,6 +1879,7 @@ function buildDailySummary(state) {
     alliances: Object.values(state.alliances),
     newRelationships,
     betrayals,
+    intimacies,
     rumors: state.rumors.filter((r) => r.dayCreated === state.day),
     violentEvent: violentLine ? { text: violentLine } : null,
     deathEvent,
@@ -1752,6 +1893,7 @@ function chooseHeadlineType(summary) {
   if (summary.deathEvent) return "death";
   if (summary.violentEvent) return "violence";
   if (summary.betrayals.length) return "betrayal";
+  if (summary.intimacies.length) return "intimacy";
   if (summary.newRelationships.length) return "romance";
   if (summary.powerShift) return "powerShift";
   return "ranking";
@@ -1783,6 +1925,7 @@ function generateStory(state) {
   const death = summary.deathEvent;
   const betrayal = summary.betrayals[0];
   const rel = summary.newRelationships[0];
+  const intimacy = summary.intimacies[0];
   const betrayalPairKey = betrayal ? betrayal.join("::") : null;
   const repeatedBetrayal = betrayalPairKey && state.storyMemory.previousRivalries.slice(0, 3).includes(betrayalPairKey);
 
@@ -1793,6 +1936,8 @@ function generateStory(state) {
     betrayed: betrayal?.[1] ?? "오늘의 표적",
     loverA: rel?.[0] ?? "두 사람",
     loverB: rel?.[1] ?? "두 사람",
+    intimacyA: intimacy?.[0] ?? "누군가",
+    intimacyB: intimacy?.[1] ?? "누군가",
     shiftActor: summary.powerShift ?? first?.name ?? "상위권",
   };
 
@@ -1808,6 +1953,10 @@ function generateStory(state) {
   if (summary.betrayals.length) {
     const line = pickTemplate(state, "body.betrayalLine", NARRATIVE_TEMPLATES.body.betrayalLine, rng);
     p2Core = `${repeatedBetrayal ? "또 한 번, " : ""}${formatTemplate(line, vars)}`;
+  } else if (summary.intimacies.length) {
+    const line = pickTemplate(state, "body.intimacyLine", NARRATIVE_TEMPLATES.body.intimacyLine, rng);
+    const jealousy = pickTemplate(state, "body.jealousyLine", NARRATIVE_TEMPLATES.body.jealousyLine, rng);
+    p2Core = `${formatTemplate(line, { ...vars, loverA: vars.intimacyA, loverB: vars.intimacyB })} ${jealousy}`;
   } else if (summary.newRelationships.length) {
     const line = pickTemplate(state, "body.romanceLine", NARRATIVE_TEMPLATES.body.romanceLine, rng);
     const jealousy = pickTemplate(state, "body.jealousyLine", NARRATIVE_TEMPLATES.body.jealousyLine, rng);
@@ -1859,13 +2008,13 @@ function detectAttractionTriangle(state) {
 
 function checkSeasonEnd(state) {
   const alive = aliveParticipants(state);
-  if (alive.length <= CONFIG.minParticipants) {
+  if (CONFIG.seasonEndByLastAlive && alive.length <= CONFIG.minParticipants) {
     state.gameOver = true;
     state.winnerId = alive[0] ? alive[0].id : null;
     return;
   }
 
-  if (state.day >= CONFIG.seasonDays) {
+  if (CONFIG.seasonEndByDay && state.day >= CONFIG.seasonDays) {
     const sorted = [...alive].sort((a, b) => b.points - a.points);
     state.winnerId = sorted[0]?.id ?? null;
     state.gameOver = true;
@@ -1881,6 +2030,7 @@ function resetDailyFlags(state) {
   }
   state.newAlliancesToday = [];
   state.dailyRelationshipEvents = [];
+  state.dailyIntimacyEvents = [];
   state.confrontationEventsToday = [];
   state.hostEventToday = false;
   state.detectionEventToday = false;
@@ -1956,7 +2106,7 @@ function setHostTargetOptions(state) {
     for (const p of alive) {
       const option = document.createElement("option");
       option.value = p.id;
-      option.textContent = `${p.name} (${p.id})`;
+      option.textContent = `${p.name} (${ROLE_LABEL[p.role] ?? p.role})`;
       select.appendChild(option);
     }
     if ([...select.options].some((o) => o.value === prev)) select.value = prev;
@@ -1967,7 +2117,9 @@ function renderTopBar(state) {
   const alive = aliveParticipants(state).length;
   const winner = state.winnerId ? participantById(state, state.winnerId) : null;
   const status = state.gameOver ? `시즌 종료 | 우승 ${winner ? winner.name : "-"}` : "시즌 진행 중";
-  document.getElementById("season-meta").textContent = `${state.day}일/20일 | 생존 ${alive}/8 | 드라마 ${state.dramaScore} | ${status}`;
+  document.getElementById("season-meta").textContent = `${state.day}일/20일 | 생존 ${alive}/8 | 드라마 ${state.dramaScore} | 시청관심 ${Math.round(
+    state.audienceInterest
+  )} | ${status}`;
 }
 
 function renderPriority(state) {
@@ -2063,6 +2215,7 @@ function renderParticipants(state) {
       <div class="row-split"><span>공포 ${toPercent(p.fear)}</span>${statTag(p.fear, 55, 80)}</div>
       <div class="row-split"><span>질투 ${toPercent(p.jealousy)}</span>${statTag(p.jealousy, 60, 80)}</div>
       <div class="row-split"><span>고립 ${toPercent(p.loneliness)}</span>${statTag(p.loneliness, 55, 75)}</div>
+      <div class="row-split"><span>욕망 ${toPercent(p.desire)}</span>${statTag(p.desire, 60, 80)}</div>
       <div class="row-split"><span>안정성 ${toPercent(p.stability)}</span>${statTag(100 - p.stability, 50, 75)}</div>
       <div class="row-split"><span>야망 ${toPercent(p.ambition)}</span><span>${alliance}</span></div>
     `;
