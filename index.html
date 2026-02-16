@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NPC 신문형 시뮬레이터 MVP</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar card">
+        <div class="topbar-left">
+          <h1>라일리타운 데일리</h1>
+          <div id="world-info"></div>
+        </div>
+        <div class="topbar-right">
+          <label>Seed <input id="seed-input" type="number" /></label>
+          <button id="seed-apply">Apply Seed</button>
+          <button id="seed-random">Random Seed</button>
+          <button id="next-day" class="primary">Next Day</button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <aside class="sidebar card">
+          <h2>NPC 목록</h2>
+          <ul id="npc-list" class="npc-list"></ul>
+        </aside>
+
+        <section class="content">
+          <section class="card newspaper">
+            <h2>오늘의 신문</h2>
+            <div id="headlines" class="headlines"></div>
+          </section>
+
+          <section class="card logs">
+            <h2>오늘의 사건 로그</h2>
+            <div id="log-list" class="log-list"></div>
+          </section>
+        </section>
+      </main>
+
+      <footer class="card debug-panel">
+        <strong>Debug</strong>
+        <button id="debug-fight">강제 싸움(FIGHT) 유도</button>
+        <button id="debug-rumor">강제 루머(SCANDAL) 유도</button>
+        <button id="save-btn">저장</button>
+        <button id="load-btn">불러오기</button>
+        <span id="debug-status"></span>
+      </footer>
+    </div>
+
+    <div id="npc-modal" class="modal hidden">
+      <div class="modal-content card">
+        <button id="modal-close" class="close-btn">닫기</button>
+        <div id="npc-detail"></div>
+      </div>
+    </div>
+
+    <script src="main.js"></script>
+  </body>
+</html>
